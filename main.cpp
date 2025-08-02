@@ -126,20 +126,37 @@ void loop()
     if (Serial.available()) {
         String input = Serial.readStringUntil('\n');
         input.trim();
-        Serial.println("[입력 수신]: " + input);  // ← 이 줄 추가
+        Serial.println("[입력 수신]: " + input);
 
-        if (input.length() >= 3) {
-            char dirChar = input.charAt(0);
-            int dist = input.substring(2).toInt();
+        // 입력 예: "L 20 40"
+        char dirChar;
+        int dist = 0;
+        int speed = -1; // 속도는 선택적으로 입력됨
 
-            String dirText;
-            if (dirChar == 'L') dirText = String(dist) + "m LEFT";
-            else if (dirChar == 'R') dirText = String(dist) + "m RIGHT";
-            else if (dirChar == 'M') dirText = String(dist) + "m STRAIGHT";
-            else return; // 잘못된 입력
+        int firstSpace = input.indexOf(' ');
+        int secondSpace = input.indexOf(' ', firstSpace + 1);
 
-            hud_bw_set_dir(dirText.c_str());
+        if (firstSpace == -1) return; // 최소한 방향+거리 필요
+
+        dirChar = input.charAt(0);
+        dist = input.substring(firstSpace + 1, secondSpace == -1 ? input.length() : secondSpace).toInt();
+
+        if (secondSpace != -1) {
+            speed = input.substring(secondSpace + 1).toInt(); // 속도 있음
+        }
+
+        String dirText;
+        if (dirChar == 'L') dirText = String(dist) + "m LEFT";
+        else if (dirChar == 'R') dirText = String(dist) + "m RIGHT";
+        else if (dirChar == 'M') dirText = String(dist) + "m STRAIGHT";
+        else return;
+
+        hud_bw_set_dir(dirText.c_str());
+
+        if (speed >= 0) {
+            hud_bw_set_speed(speed);
         }
     }
 }
+
 
