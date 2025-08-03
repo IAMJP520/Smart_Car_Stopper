@@ -1,0 +1,6 @@
+250803 개발 기록
+방향/거리/속도 디스플레이 기능 구현
+arrow_imgs.h 헤더파일에서 각 이미지(좌회전,직진,우회전) 선언
+arrow_imgs.c 안에 각 이미지 파일 c배열로 변환하여 저장됨
+hud_bw.c 및 hud_bw.h
+main.cpp으로 이루어진 HUD_LVGL 프로젝트

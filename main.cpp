@@ -108,8 +108,8 @@ void setup()
     ui_init();
     hud_bw_show();
     // 테스트: 방향/속도 갱신
-    hud_bw_set_dir("LEFT");         // "RIGHT" / "STRAIGHT"
-    hud_bw_set_speed(72);           // 0~999
+    hud_bw_set_dir("STRAIGHT");         // "RIGHT" / "STRAIGHT"
+    hud_bw_set_speed(0);           // 0~999
     // 경로선(옵션)
     // lv_point_t pts[] = {{160,200},{160,180},{162,160},{170,140},{185,120}};
     // hud_bw_set_path(pts, sizeof(pts)/sizeof(pts[0]));
