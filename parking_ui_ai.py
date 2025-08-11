@@ -1,24 +1,163 @@
 import sys
+import math
 from heapq import heappush, heappop
+from collections import deque
 from PyQt5.QtWidgets import (
     QApplication, QGraphicsScene, QGraphicsView, QGraphicsRectItem,
     QGraphicsSimpleTextItem, QGraphicsEllipseItem,
     QPushButton, QWidget, QVBoxLayout, QHBoxLayout, QGraphicsItem,
-    QLineEdit, QLabel, QMessageBox, QGraphicsItemGroup, QListWidget,
-    QListWidgetItem, QSplitter, QFrame
+    QLineEdit, QLabel, QMessageBox, QGraphicsItemGroup, QFrame,
+    QScrollArea, QSizePolicy
 )
-from PyQt5.QtGui import QBrush, QPainter, QPen, QColor, QPainterPath, QFont
-from PyQt5.QtCore import Qt, QPointF, QRectF
+from PyQt5.QtGui import QBrush, QPainter, QPen, QColor, QPainterPath, QFont, QPixmap
+from PyQt5.QtCore import Qt, QPointF, QRectF, QTimer
 
-#사용법
-# W1=(200,925) 고정, (1,2 제외)
-# W2=(1475,925) or (200,1475)
-# W3=도착지 좌표
+class RouteHUD(QFrame):
+    """경로 안내 HUD 패널"""
+    def __init__(self):
+        super().__init__()
+        self.setFixedWidth(300)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #1a1a1a;
+                border: 2px solid #333;
+                border-radius: 10px;
+            }
+            QLabel {
+                color: #ffffff;
+                font-size: 12px;
+            }
+            .title {
+                color: #00ff88;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            .distance {
+                color: #ffaa00;
+                font-size: 11px;
+            }
+            .instruction {
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            .waypoint {
+                color: #88aaff;
+                font-size: 12px;
+            }
+        """)
+        
+        self.layout = QVBoxLayout()
+        self.layout.setSpacing(10)
+        self.layout.setContentsMargins(15, 15, 15, 15)
+        
+        # 제목
+        self.title = QLabel("🗺️ 경로 안내")
+        self.title.setProperty("class", "title")
+        self.title.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(self.title)
+        
+        # 전체 경로 정보
+        self.route_info = QLabel("경로를 생성하세요")
+        self.route_info.setProperty("class", "distance")
+        self.route_info.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(self.route_info)
+        
+        # 구분선
+        line1 = QFrame()
+        line1.setFrameShape(QFrame.HLine)
+        line1.setStyleSheet("color: #444;")
+        self.layout.addWidget(line1)
+        
+        # 턴바이턴 지시사항 스크롤 영역
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                background-color: #333;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #666;
+                border-radius: 4px;
+            }
+        """)
+        
+        self.instructions_widget = QWidget()
+        self.instructions_layout = QVBoxLayout(self.instructions_widget)
+        self.instructions_layout.setSpacing(8)
+        
+        self.scroll_area.setWidget(self.instructions_widget)
+        self.layout.addWidget(self.scroll_area)
+        
+        # 웨이포인트 정보
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.HLine)
+        line2.setStyleSheet("color: #444;")
+        self.layout.addWidget(line2)
+        
+        self.waypoints_info = QLabel("웨이포인트: 없음")
+        self.waypoints_info.setProperty("class", "waypoint")
+        self.layout.addWidget(self.waypoints_info)
+        
+        self.setLayout(self.layout)
+        self.current_instructions = []
+
+    def clear_instructions(self):
+        """기존 지시사항 제거"""
+        for i in reversed(range(self.instructions_layout.count())):
+            child = self.instructions_layout.itemAt(i).widget()
+            if child:
+                child.deleteLater()
+        self.current_instructions = []
+
+    def add_instruction(self, step_num, direction, instruction, distance=""):
+        """턴바이턴 지시사항 추가"""
+        instruction_frame = QFrame()
+        instruction_frame.setStyleSheet("""
+            QFrame {
+                background-color: #2a2a2a;
+                border: 1px solid #444;
+                border-radius: 5px;
+                padding: 8px;
+            }
+        """)
+        
+        layout = QVBoxLayout(instruction_frame)
+        layout.setSpacing(4)
+        
+        # 단계 번호와 방향
+        header = QLabel(f"{step_num}. {direction}")
+        header.setProperty("class", "instruction")
+        layout.addWidget(header)
+        
+        # 지시사항
+        inst_label = QLabel(instruction)
+        inst_label.setWordWrap(True)
+        layout.addWidget(inst_label)
+        
+        # 거리 정보
+        if distance:
+            dist_label = QLabel(distance)
+            dist_label.setProperty("class", "distance")
+            layout.addWidget(dist_label)
+        
+        self.instructions_layout.addWidget(instruction_frame)
+        self.current_instructions.append(instruction_frame)
+
+    def update_route_info(self, total_distance, waypoint_count):
+        """전체 경로 정보 업데이트"""
+        self.route_info.setText(f"총 거리: {total_distance:.0f}m\n경로 생성 완료")
+        self.waypoints_info.setText(f"웨이포인트: {waypoint_count}개")
 
 class ParkingLotUI(QWidget):
-    # ----- 기본 설정 -----
     SCENE_W, SCENE_H = 2000, 2000
-    CELL = 30         # 그리드 셀 크기(px) — 커질수록 더 각지고 가벼움
+    CELL = 30         # 셀 그리드(클수록 가볍고 경로는 각지됨)
     MARGIN = 10       # 장애물 팽창 여유(px)
     PATH_WIDTH = 6    # 경로 두께
     DRAW_DOTS = False # 경로 점 마커 표시 여부
@@ -27,79 +166,54 @@ class ParkingLotUI(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("실내 주차장 UI (웨이포인트 + HUD)")
-        self.setGeometry(100, 100, 1280, 900)
+        self.setWindowTitle("실내 주차장 UI (웨이포인트 기반 경로 안내 + HUD)")
+        self.setGeometry(100, 100, 1500, 900)
 
-        # ----- 장면/뷰 -----
+        # 메인 레이아웃 (수평 분할)
+        main_layout = QHBoxLayout()
+        
+        # 왼쪽: 지도 영역
+        map_widget = QWidget()
+        map_layout = QVBoxLayout(map_widget)
+        
         self.scene = QGraphicsScene(0, 0, self.SCENE_W, self.SCENE_H)
         self.scene.setItemIndexMethod(QGraphicsScene.NoIndex)
         self.view = QGraphicsView(self.scene)
         self.view.setRenderHint(QPainter.Antialiasing)
         self.view.setViewportUpdateMode(QGraphicsView.MinimalViewportUpdate)
         self.view.scale(0.5, 0.5)
-        # 좌하단 원점으로 보기 좌표계 전환
+        # 좌하단 원점
         self.view.scale(1, -1)
         self.view.translate(0, -self.SCENE_H)
 
-        # ----- HUD 패널 -----
-        self.hud = QWidget()
-        self.hud.setMinimumWidth(340)
-        hud_layout = QVBoxLayout(self.hud)
-        hud_layout.setContentsMargins(16, 16, 16, 16)
-        hud_layout.setSpacing(10)
-
-        self.hud_title = QLabel("경로 안내")
-        self.hud_title.setStyleSheet("font-weight:600;")
-        self.hud_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-        self.hud_arrow = QLabel("—")
-        f = QFont()
-        f.setPointSize(36)
-        f.setBold(True)
-        self.hud_arrow.setFont(f)
-        self.hud_arrow.setAlignment(Qt.AlignCenter)
-
-        self.hud_next = QLabel("다음: —")
-        self.hud_next.setStyleSheet("font-size:16px;")
-        self.hud_dist = QLabel("거리: —")
-        self.hud_dist.setStyleSheet("color:#666;")
-
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-
-        self.hud_steps = QListWidget()
-        self.hud_steps.setAlternatingRowColors(True)
-
-        # 웨이포인트 입력
-        self.le1 = QLineEdit(); self.le1.setPlaceholderText("W1: 1300,925  (필수)")
-        self.le2 = QLineEdit(); self.le2.setPlaceholderText("W2: 1475,925  (선택)")
-        self.le3 = QLineEdit(); self.le3.setPlaceholderText("W3: 1475,1300 (선택)")
-        inputs = QVBoxLayout(); inputs.addWidget(self.le1); inputs.addWidget(self.le2); inputs.addWidget(self.le3)
-
+        # UI: 웨이포인트 3개 입력(x,y). 비워두면 무시.
+        self.le1 = QLineEdit(); self.le1.setPlaceholderText("예: 1300,925  (필수)")
+        self.le2 = QLineEdit(); self.le2.setPlaceholderText("예: 1475,925  (선택)")
+        self.le3 = QLineEdit(); self.le3.setPlaceholderText("예: 1475,1300 (선택)")
         self.btn_apply = QPushButton("경로 안내")
         self.btn_apply.clicked.connect(self.apply_route_from_inputs)
 
-        hud_layout.addWidget(self.hud_title)
-        hud_layout.addWidget(self.hud_arrow)
-        hud_layout.addWidget(self.hud_next)
-        hud_layout.addWidget(self.hud_dist)
-        hud_layout.addWidget(line)
-        hud_layout.addWidget(QLabel("전체 단계"))
-        hud_layout.addWidget(self.hud_steps, 1)
-        hud_layout.addSpacing(8)
-        hud_layout.addLayout(inputs)
-        hud_layout.addWidget(self.btn_apply)
+        row1 = QHBoxLayout(); row1.addWidget(QLabel("W1:")); row1.addWidget(self.le1)
+        row2 = QHBoxLayout(); row2.addWidget(QLabel("W2:")); row2.addWidget(self.le2)
+        row3 = QHBoxLayout(); row3.addWidget(QLabel("W3:")); row3.addWidget(self.le3)
 
-        # ----- 좌측 지도 + 우측 HUD 병렬 -----
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self.view)
-        splitter.addWidget(self.hud)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
+        controls = QHBoxLayout()
+        controls.addStretch(1); controls.addWidget(self.btn_apply)
 
-        root = QVBoxLayout(self)
-        root.addWidget(splitter)
+        map_layout.addWidget(self.view)
+        map_layout.addLayout(row1)
+        map_layout.addLayout(row2) 
+        map_layout.addLayout(row3)
+        map_layout.addLayout(controls)
+
+        # 오른쪽: HUD 패널
+        self.hud = RouteHUD()
+
+        # 메인 레이아웃에 추가
+        main_layout.addWidget(map_widget, 3)  # 지도가 더 넓게
+        main_layout.addWidget(self.hud, 1)    # HUD는 고정 폭
+        
+        self.setLayout(main_layout)
 
         # 레이어: 정적/경로 분리
         self.layer_static = QGraphicsItemGroup()
@@ -107,7 +221,6 @@ class ParkingLotUI(QWidget):
         self.scene.addItem(self.layer_static)
         self.scene.addItem(self.layer_path)
 
-        # 초기화
         self.build_static_layout()
         self.build_occupancy()
 
@@ -191,6 +304,7 @@ class ParkingLotUI(QWidget):
         # 막을 영역들
         block_rect(550,1050,800,300)     # 장애물
         block_rect(400,0,1600,400)       # 하단 통행불가 밴드
+        # block_rect(0,0,400,400)        # 입구 차로는 열어둠
         block_rect(1600,400,400,400)     # 빈기둥
         block_rect(1600,1600,400,400)    # 빈기둥 상단
         block_rect(0,1600,300,400)       # 상단 장애인
@@ -222,17 +336,18 @@ class ParkingLotUI(QWidget):
         return QPointF(cx * self.CELL + self.CELL / 2.0,
                        cy * self.CELL + self.CELL / 2.0)
 
-    # ---------- 유틸 ----------
+    # ---------- 유틸: 자유셀 탐색 ----------
     def is_cell_free(self, cx, cy):
         if cx < 0 or cy < 0 or cx >= self.grid_w or cy >= self.grid_h:
             return False
         return self.occ[self._occ_idx(cx, cy)] == 0
 
     def find_nearest_free_cell_from_point(self, p: QPointF, max_radius_cells=30):
-        """목표 셀이 막혀있을 때 가장 가까운 자유셀 중심을 탐색(BFS 테두리)."""
+        """목표 셀이 막혀있을 때, 가장 가까운 자유셀(맨해튼 우선) 탐색."""
         sx, sy = self.pt_to_cell(p)
         if self.is_cell_free(sx, sy):
             return self.cell_to_pt_center((sx, sy))
+        # BFS 레이어 확장
         for r in range(1, max_radius_cells+1):
             for dx in range(-r, r+1):
                 for dy in (-r, r):
@@ -244,7 +359,7 @@ class ParkingLotUI(QWidget):
                     cx, cy = sx+dx, sy+dy
                     if self.is_cell_free(cx, cy):
                         return self.cell_to_pt_center((cx, cy))
-        return self.cell_to_pt_center((sx, sy))
+        return self.cell_to_pt_center((sx, sy))  # 최후의 보정
 
     # ---------- A* (4방향) ----------
     def astar(self, start_pt: QPointF, goal_pt: QPointF):
@@ -286,7 +401,7 @@ class ParkingLotUI(QWidget):
                     heappush(openh, (ng + heur(nx,ny), ng, (nx,ny)))
         return None
 
-    # ---------- 경로 단순화 ----------
+    # ---------- 단순화 ----------
     def simplify_cells(self, cells):
         if not cells: return cells
         simp = [cells[0]]
@@ -304,46 +419,97 @@ class ParkingLotUI(QWidget):
             simp.append(cells[-1])
         return simp
 
-    # ---------- 경로 HUD 단계 생성 ----------
-    def build_steps_from_cells(self, cells):
-        """단순화된 셀 좌표 리스트 -> GUI 단계(방향/거리)"""
-        if not cells or len(cells) < 2:
-            return []
-
-        # 셀 간 직선 구간들
-        segs = []
-        for i in range(1, len(cells)):
-            (x0, y0), (x1, y1) = cells[i-1], cells[i]
-            dx, dy = x1 - x0, y1 - y0
-            if dx != 0: dirv = (1 if dx > 0 else -1, 0)  # E/W
-            else:       dirv = (0, 1 if dy > 0 else -1)  # N/S
-            dist_cells = abs(dx) + abs(dy)               # 축방향이므로 합 = 거리
-            segs.append((dirv, dist_cells))
-
-        # 방향 -> 표시용
-        vec2h = {(1,0): "E", (-1,0): "W", (0,1): "N", (0,-1): "S"}
-        head2ang = {"E":0, "N":90, "W":180, "S":270}
-
-        steps = []
-        for i, (dirv, dist_c) in enumerate(segs):
-            hd = vec2h[dirv]
-            dist_px = dist_c * self.CELL
-            if i == 0:
-                steps.append({"label": f"직진 {dist_px}px ({hd})", "heading": hd, "turn": None, "dist_px": dist_px})
+    # ---------- 경로 분석 및 HUD 업데이트 ----------
+    def analyze_route_and_update_hud(self, pts, waypoints):
+        """경로를 분석해서 HUD에 턴바이턴 지시사항 생성"""
+        self.hud.clear_instructions()
+        
+        if len(pts) < 2:
+            return
+        
+        # 총 거리 계산
+        total_distance = 0
+        for i in range(len(pts) - 1):
+            dx = pts[i+1].x() - pts[i].x()
+            dy = pts[i+1].y() - pts[i].y()
+            total_distance += math.sqrt(dx*dx + dy*dy)
+        
+        self.hud.update_route_info(total_distance, len(waypoints))
+        
+        # 주요 전환점 찾기 및 지시사항 생성
+        step = 1
+        current_waypoint_idx = 0
+        
+        self.hud.add_instruction(step, "🚗", "입구에서 출발", "시작점")
+        step += 1
+        
+        # 경로의 주요 방향 변화 지점들 찾기
+        directions = []
+        for i in range(len(pts) - 1):
+            dx = pts[i+1].x() - pts[i].x()
+            dy = pts[i+1].y() - pts[i].y()
+            
+            if abs(dx) > abs(dy):
+                direction = "동쪽" if dx > 0 else "서쪽"
             else:
-                prev_hd = steps[-1]["heading"]
-                a1, a2 = head2ang[prev_hd], head2ang[hd]
-                delta = (a2 - a1) % 360
-                if delta == 90:  turn = "좌회전"
-                elif delta == 270: turn = "우회전"
-                else: turn = "직진"
-                steps.append({"label": f"{turn} 후 직진 {dist_px}px ({hd})", "heading": hd, "turn": turn, "dist_px": dist_px})
+                direction = "북쪽" if dy > 0 else "남쪽"
+            directions.append(direction)
+        
+        # 방향 변화 지점에서 지시사항 생성
+        current_dir = directions[0] if directions else "북쪽"
+        segment_distance = 0
+        
+        for i, direction in enumerate(directions):
+            dx = pts[i+1].x() - pts[i].x()
+            dy = pts[i+1].y() - pts[i].y()
+            segment_distance += math.sqrt(dx*dx + dy*dy)
+            
+            if direction != current_dir or i == len(directions) - 1:
+                if segment_distance > 50:  # 50픽셀 이상의 구간만 표시
+                    if direction != current_dir:
+                        # 방향 전환 지시
+                        if current_dir == "북쪽" and direction == "동쪽":
+                            turn = "➡️ 우회전"
+                        elif current_dir == "동쪽" and direction == "남쪽":
+                            turn = "➡️ 우회전"
+                        elif current_dir == "남쪽" and direction == "서쪽":
+                            turn = "➡️ 우회전"
+                        elif current_dir == "서쪽" and direction == "북쪽":
+                            turn = "➡️ 우회전"
+                        elif current_dir == "북쪽" and direction == "서쪽":
+                            turn = "⬅️ 좌회전"
+                        elif current_dir == "서쪽" and direction == "남쪽":
+                            turn = "⬅️ 좌회전"
+                        elif current_dir == "남쪽" and direction == "동쪽":
+                            turn = "⬅️ 좌회전"
+                        elif current_dir == "동쪽" and direction == "북쪽":
+                            turn = "⬅️ 좌회전"
+                        else:
+                            turn = "🔄 방향 변경"
+                        
+                        self.hud.add_instruction(
+                            step, turn, 
+                            f"{direction}으로 이동",
+                            f"약 {segment_distance:.0f}m"
+                        )
+                        step += 1
+                    
+                    current_dir = direction
+                    segment_distance = 0
+        
+        # 웨이포인트 도달 지시사항
+        for i, wp in enumerate(waypoints):
+            self.hud.add_instruction(
+                step, "📍", 
+                f"웨이포인트 {i+1} 도달",
+                f"좌표: ({wp.x():.0f}, {wp.y():.0f})"
+            )
+            step += 1
+        
+        # 최종 도착
+        self.hud.add_instruction(step, "🏁", "목적지 도착", "주차 완료")
 
-        # 마지막 도착 안내
-        steps[-1]["label"] = steps[-1]["label"] + " → 목적지"
-        return steps
-
-    # ---------- 곡선 경로 시각화 ----------
+    # ---------- 경로 그리기(부드럽게, 장애물 근처는 직선) ----------
     def is_point_near_blocked(self, p: QPointF, r_cells=2):
         cx, cy = self.pt_to_cell(p)
         for dy in range(-r_cells, r_cells + 1):
@@ -389,38 +555,9 @@ class ParkingLotUI(QWidget):
                 dot.setPen(QPen(Qt.NoPen))
                 dot.setParentItem(self.layer_path)
 
-    # ---------- HUD 업데이트 ----------
-    def update_hud(self, steps):
-        # 대형 화살표/문구/거리
-        arrow_for = {"N":"↑", "E":"→", "S":"↓", "W":"←"}
-        turn_arrow = {"좌회전":"↰", "우회전":"↱"}
-
-        self.hud_steps.clear()
-        if not steps:
-            self.hud_arrow.setText("—")
-            self.hud_next.setText("다음: —")
-            self.hud_dist.setText("거리: —")
-            return
-
-        # 리스트 채우기
-        for i, s in enumerate(steps, start=1):
-            item = QListWidgetItem(f"{i}. {s['label']}")
-            self.hud_steps.addItem(item)
-
-        # 다음 안내(“다음 코너까지 직진 거리” 기준)
-        if len(steps) >= 2 and steps[1]["turn"] in ("좌회전", "우회전"):
-            self.hud_arrow.setText(turn_arrow[steps[1]["turn"]])
-            self.hud_next.setText(f"다음: {steps[1]['turn']}")
-            self.hud_dist.setText(f"거리: {steps[0]['dist_px']} px")
-        else:
-            # 코너가 없으면 직진
-            self.hud_arrow.setText(arrow_for[steps[0]["heading"]])
-            self.hud_next.setText("다음: 직진")
-            self.hud_dist.setText(f"거리: {steps[0]['dist_px']} px")
-
     # ---------- Route & Draw ----------
     def clear_path_layer(self):
-        for child in list(self.layer_path.childItems()):
+        for child in self.layer_path.childItems():
             child.setParentItem(None)
             self.scene.removeItem(child)
 
@@ -446,10 +583,12 @@ class ParkingLotUI(QWidget):
             QMessageBox.warning(self, "입력 오류", "최소 1개의 웨이포인트를 입력하세요. 예: 1300,925")
             return
 
-        # 장애물 위라면 가까운 자유셀로 스냅
-        snapped = [self.find_nearest_free_cell_from_point(p) for p in waypoints]
+        # 각 웨이포인트가 막혀있으면 근처 자유셀로 스냅
+        snapped = []
+        for p in waypoints:
+            snapped.append(self.find_nearest_free_cell_from_point(p))
 
-        # 구간별 A* 이어붙이기
+        # 구간별 A* 이어 붙이기
         segments = []
         prev = self.ENTRANCE
         for goal in snapped:
@@ -460,11 +599,11 @@ class ParkingLotUI(QWidget):
             segments.append(c)
             prev = goal
 
-        # 하나의 셀 경로로 병합 + 단순화
+        # 셀들을 하나의 경로로 합치고 간소화
         whole = []
         for i, seg in enumerate(segments):
             if i == 0: whole.extend(seg)
-            else:      whole.extend(seg[1:])
+            else:      whole.extend(seg[1:])  # 중복 셀 제거
         whole = self.simplify_cells(whole)
         pts = [self.cell_to_pt_center(c) for c in whole]
 
@@ -473,13 +612,20 @@ class ParkingLotUI(QWidget):
             pts[0] = self.ENTRANCE
             pts[-1] = snapped[-1]
 
-        # 그리기 갱신
+        # 그리기
         self.clear_path_layer()
         self.draw_smooth_path(pts)
 
-        # HUD 단계 업데이트
-        steps = self.build_steps_from_cells(whole)
-        self.update_hud(steps)
+        # HUD 업데이트
+        self.analyze_route_and_update_hud(pts, snapped)
+
+        # 웨이포인트 번호 찍기
+        for i, p in enumerate(snapped, start=1):
+            t = QGraphicsSimpleTextItem(f"W{i}")
+            t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+            t.setPos(p.x()-6, p.y()+10)
+            t.setBrush(QColor(30, 30, 30))
+            t.setParentItem(self.layer_path)
 
 
 if __name__ == "__main__":
