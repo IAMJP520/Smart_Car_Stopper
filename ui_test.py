@@ -11,142 +11,297 @@ from PyQt5.QtGui import QBrush, QPainter, QPen, QColor, QPainterPath, QFont, QPo
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
 
 # ===================================================================
-# 고급 HUD 위젯: 새로운 디자인 적용
+# 고급 HUD 위젯: 현대적인 자동차 네비게이션 스타일
+# ===================================================================
+# ===================================================================
+# 고급 HUD : 이미지 같은 그린 체브론 + 하단 정보 바
+# (다른 코드 변경 없이 AdvancedHudWidget만 교체)
 # ===================================================================
 class AdvancedHudWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.NoFrame)
-        self.setMinimumSize(400, 250) # 높이 조절
-        self.setStyleSheet("""
-            AdvancedHudWidget { 
-                background-color: transparent;
-            }
-        """)
-        
-        self.current_direction = "직진"
-        self.current_distance = 0.0
-        self.next_direction = ""
-        self.speed = 0
-        
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        rect = self.rect()
-        center_x = rect.width() / 2
-        
-        self.draw_main_display(painter, center_x, rect.height() / 2)
+        self.setMinimumSize(520, 600)
+        # HUD는 투명 배경 느낌
+        self.setStyleSheet("AdvancedHudWidget { background: rgba(0,0,0,60); border: none; }")
 
-    def draw_main_display(self, painter, cx, cy):
-        painter.save()
+        # 네비 상태
+        self.current_direction = "직진"     # "직진" / "좌회전" / "우회전" / "목적지 도착"
+        self.current_distance  = 0.0        # m
+        self.next_direction    = ""         # 다음 이벤트 요약
+        self.speed             = 0          # km/h
+        self.progress          = 0          # %
 
-        # 1. 배경 모양 그리기 (이미지와 유사하게)
-        path = QPainterPath()
-        path.moveTo(cx - 180, cy)
-        path.lineTo(cx - 150, cy - 40)
-        path.lineTo(cx + 150, cy - 40)
-        path.lineTo(cx + 180, cy)
-        path.lineTo(cx + 150, cy + 40)
-        path.lineTo(cx - 150, cy + 40)
-        path.closeSubpath()
+        # 테마
+        self.chev_color = QColor(30, 255, 140)  # 체브론 그린
+        self.panel_bg   = QColor(10, 10, 12, 160)
+        self.text_main  = QColor(235, 235, 235)
+        self.text_sub   = QColor(170, 170, 170)
 
-        painter.setPen(QPen(QColor(0, 170, 255, 200), 3))
-        painter.setBrush(QBrush(QColor(10, 10, 20, 220)))
-        painter.drawPath(path)
+    # ---------- 페인팅 ----------
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
 
-        # 2. 속도 표시
-        painter.setFont(QFont("Arial", 36, QFont.Bold))
-        painter.setPen(QPen(Qt.white))
-        painter.drawText(QRectF(cx - 140, cy - 30, 80, 60), Qt.AlignCenter, f"{self.speed}")
-        painter.setFont(QFont("Arial", 10))
-        painter.setPen(QPen(QColor(200, 200, 200)))
-        painter.drawText(QRectF(cx - 140, cy + 15, 80, 20), Qt.AlignCenter, "km/h")
+        r = self.rect()
+        cx = r.center().x()
 
-        # 3. 구분선
-        painter.setPen(QPen(QColor(100, 100, 100), 1))
-        painter.drawLine(int(cx - 50), int(cy - 25), int(cx - 50), int(cy + 25))
+        # 상단 체브론(진행 방향 안내)
+        self._draw_chevrons(p, cx, top_y=120)
 
-        # 4. 방향 아이콘 및 거리 표시
-        icon_x, icon_y = cx + 10, cy - 10
-        
-        # 거리에 따른 색상 결정
-        if self.current_distance <= 5: color = QColor(255, 170, 0) # 경고
-        elif self.current_distance <= 20: color = QColor(255, 255, 100) # 주의
-        else: color = QColor(0, 255, 170) # 안전
+        # 하단 반투명 정보 바
+        self._draw_bottom_panel(p, r)
 
-        painter.setPen(QPen(color, 4))
-        painter.setBrush(QBrush(color))
+    # ---------- 체브론 ----------    
+    def _draw_chevrons(self, p: QPainter, cx: int, top_y: int):
+        """진행 방향에 따라 체브론(>>>>)을 원근감 있게 그린다."""
+        p.save()
 
-        # 현재 방향에 따라 아이콘 그리기
-        display_direction = self.current_direction
-        if self.current_distance > 5 and "도착" not in self.current_direction:
-             display_direction = "직진"
+        # 방향 -> 회전각/오프셋
+        if "좌회전" in self.current_direction:
+            angle = -35
+            x0 = cx - 120
+            dy = -6
+        elif "우회전" in self.current_direction:
+            angle = 35
+            x0 = cx - 120
+            dy = -6
+        elif "목적지" in self.current_direction:
+            angle = 0
+            x0 = cx - 120
+            dy = -3
+        else:  # 직진
+            angle = 0
+            x0 = cx - 120
+            dy = -3
 
-        if "좌회전" in display_direction: self.draw_small_arrow(painter, icon_x, icon_y, "left")
-        elif "우회전" in display_direction: self.draw_small_arrow(painter, icon_x, icon_y, "right")
-        elif "목적지" in display_direction: self.draw_small_arrow(painter, icon_x, icon_y, "dest")
-        else: self.draw_small_arrow(painter, icon_x, icon_y, "straight")
+        # 거리에 따라 밝기/크기 보간 (가까울수록 크고 진하게)
+        d = max(0.0, float(self.current_distance))
+        near = min(1.0, 20.0 / (d + 1e-6))   # 20m 이내면 1에 수렴
+        base_size = 34 + int(10 * near)
+        base_alpha = 180 + int(60 * near)
 
-        # 거리 텍스트
-        painter.setFont(QFont("Arial", 16, QFont.Bold))
-        painter.setPen(QPen(Qt.white))
-        distance_text = f"{self.current_distance:.1f}m"
-        painter.drawText(QRectF(cx + 40, cy - 20, 100, 20), Qt.AlignLeft, distance_text)
+        # 체브론 하나의 폴리곤(오른쪽 화살대가리) — 회전으로 방향 맞춤
+        def chevron_poly(size=36):
+            s = size
+            return QPolygonF([
+                QPointF(0, 0), QPointF(s*0.55, -s*0.35),
+                QPointF(s*0.75, -s*0.15), QPointF(s*0.25, 0),
+                QPointF(s*0.75,  s*0.15), QPointF(s*0.55,  s*0.35)
+            ])
 
-        # 다음 경로 텍스트
-        painter.setFont(QFont("Arial", 10))
-        painter.setPen(QPen(QColor(200, 200, 200)))
-        next_text = self.next_direction if self.next_direction else "---"
-        painter.drawText(QRectF(cx, cy + 10, 140, 20), Qt.AlignCenter, next_text)
+        n = 7
+        spacing = 36
+        for i in range(n):
+            scale = 1.0 - i * 0.07
+            alpha = max(40, base_alpha - i * 18)
+            col = QColor(self.chev_color); col.setAlpha(alpha)
 
-        painter.restore()
+            p.save()
+            p.translate(x0 + i * spacing, top_y + i * dy)
+            p.rotate(angle)
+            p.scale(scale, scale)
+            p.setPen(Qt.NoPen)
+            p.setBrush(col)
 
-    def draw_small_arrow(self, painter, x, y, direction_type):
-        if direction_type == "left":
-            arrow = QPolygonF([QPointF(x-12,y),QPointF(x-4,y-8),QPointF(x-4,y-4),QPointF(x+8,y-4),QPointF(x+8,y+4),QPointF(x-4,y+4),QPointF(x-4,y+8)])
-            painter.drawPolygon(arrow)
-        elif direction_type == "right":
-            arrow = QPolygonF([QPointF(x+12,y),QPointF(x+4,y-8),QPointF(x+4,y-4),QPointF(x-8,y-4),QPointF(x-8,y+4),QPointF(x+4,y+4),QPointF(x+4,y+8)])
-            painter.drawPolygon(arrow)
-        elif direction_type == "dest":
-            painter.setPen(QPen(QColor(255, 150, 150), 3)); painter.drawLine(x-8,y-10,x-8,y+10)
-            flag = QPolygonF([QPointF(x-8,y-10),QPointF(x+6,y-6),QPointF(x+6,y-2),QPointF(x-8,y-6)])
-            painter.setBrush(QBrush(QColor(255, 150, 150))); painter.drawPolygon(flag)
-        else: # straight
-            arrow = QPolygonF([QPointF(x,y-12),QPointF(x-6,y-4),QPointF(x-3,y-4),QPointF(x-3,y+8),QPointF(x+3,y+8),QPointF(x+3,y-4),QPointF(x+6,y-4)])
-            painter.drawPolygon(arrow)
+            # 좌/우 회전일 때는 화살을 오른쪽으로 두고 회전으로 방향을 만든다.
+            poly = chevron_poly(base_size)
+            p.drawPolygon(poly)
+            p.restore()
 
-    def update_navigation_info(self, current_action, next_action, current_speed=0):
-        self.speed = current_speed
-        if not current_action:
-            self.current_direction = "경로를 생성하세요"
-            self.current_distance = 0
-            self.next_direction = ""
+        # 도착 이벤트면 마지막에 깃발 느낌 포인트
+        if "목적지" in self.current_direction and d <= 8:
+            p.setPen(QPen(QColor(255, 120, 120, 220), 5))
+            p.drawLine(cx + 90, top_y - 8, cx + 90, top_y + 22)
+            p.setBrush(QColor(255, 120, 120, 220))
+            flag = QPolygonF([QPointF(cx+90, top_y-8), QPointF(cx+120, top_y),
+                              QPointF(cx+120, top_y+8), QPointF(cx+90, top_y)])
+            p.drawPolygon(flag)
+
+        p.restore()
+
+    # ---------- 하단 정보 바 ----------
+    def _draw_bottom_panel(self, p: QPainter, r: QRectF):
+        p.save()
+
+        panel_h = 120
+        panel = QRectF(16, r.bottom() - panel_h - 12, r.width() - 32, panel_h)
+
+        # 배경
+        p.setPen(Qt.NoPen)
+        p.setBrush(self.panel_bg)
+        p.drawRoundedRect(panel, 16, 16)
+
+        # 상단 경계선
+        p.setPen(QPen(QColor(0, 255, 160, 120), 2))
+        p.drawLine(
+            QPointF(panel.left() + 10, panel.top() + 8),
+            QPointF(panel.right() - 10, panel.top() + 8)
+        )
+
+        # 중앙: 속도
+        p.setPen(self.text_main)
+        p.setFont(QFont("Arial", 52, QFont.Black))
+        speed_str = str(int(self.speed))
+        fm = p.fontMetrics()
+        sx = int(panel.center().x() - fm.width(speed_str) / 2)
+        sy = int(panel.top() + 64)
+        p.drawText(sx, sy, speed_str)
+
+        p.setFont(QFont("Arial", 16))
+        p.setPen(self.text_sub)
+        p.drawText(int(panel.center().x() - 18), int(panel.top() + 88), "km/h")
+
+        # 좌측: 아이콘 + 텍스트
+        icon_cx = int(panel.left() + 60)
+        icon_cy = int(panel.center().y() - 6)
+        self._draw_small_turn_icon(p, icon_cx, icon_cy)
+
+        p.setFont(QFont("Arial", 18, QFont.Bold))
+        p.setPen(self.text_main)
+        left_text = self._pretty_next_label()
+        p.drawText(int(icon_cx + 36), int(panel.top() + 54), left_text)
+
+        # 우측: 거리 + 작은 화살
+        p.setFont(QFont("Arial", 22, QFont.Bold))
+        dist_text = f"{int(round(self.current_distance))} m"
+        w = p.fontMetrics().width(dist_text)
+        p.setPen(self.text_main)
+        p.drawText(int(panel.right() - w - 24), int(panel.top() + 60), dist_text)
+
+        # 우측 작은 회전 화살
+        p.translate(int(panel.right() - w - 42), int(panel.top() + 48))
+        p.setBrush(QBrush(QColor(0, 255, 160)))
+        p.setPen(Qt.NoPen)
+        small = QPolygonF([
+            QPointF(0, 0), QPointF(16, -12), QPointF(16, -4),
+            QPointF(34, -4), QPointF(34, 4), QPointF(16, 4), QPointF(16, 12)
+        ])
+        if "좌회전" in self.current_direction:
+            p.rotate(-90)
+        elif "우회전" in self.current_direction:
+            p.rotate(90)
+        p.drawPolygon(small)
+
+        p.restore()
+
+
+    def _draw_small_turn_icon(self, p: QPainter, cx: int, cy: int):
+        # 동그란 테두리
+        p.save()
+        p.setBrush(QBrush(QColor(20, 20, 24, 200)))
+        p.setPen(QPen(QColor(120, 200, 200), 2))
+        p.drawEllipse(QPointF(cx, cy), 22, 22)
+
+        # 아이콘
+        p.setBrush(QBrush(QColor(0, 255, 160)))
+        p.setPen(Qt.NoPen)
+        if "좌회전" in self.current_direction:
+            poly = QPolygonF([QPointF(cx-10,cy), QPointF(cx-2,cy-8), QPointF(cx-2,cy-4),
+                              QPointF(cx+10,cy-4), QPointF(cx+10,cy+4), QPointF(cx-2,cy+4),
+                              QPointF(cx-2,cy+8)])
+        elif "우회전" in self.current_direction:
+            poly = QPolygonF([QPointF(cx+10,cy), QPointF(cx+2,cy-8), QPointF(cx+2,cy-4),
+                              QPointF(cx-10,cy-4), QPointF(cx-10,cy+4), QPointF(cx+2,cy+4),
+                              QPointF(cx+2,cy+8)])
+        elif "목적지" in self.current_direction:
+            p.setPen(QPen(QColor(255,140,140), 4))
+            p.drawLine(cx-6, cy-8, cx-6, cy+10)
+            p.setBrush(QBrush(QColor(255,140,140)))
+            flag = QPolygonF([QPointF(cx-6,cy-8), QPointF(cx+10,cy-4), QPointF(cx+10,cy),
+                              QPointF(cx-6,cy-4)])
+            p.drawPolygon(flag)
+            p.restore(); return
+        else:  # 직진
+            poly = QPolygonF([QPointF(cx,cy-12), QPointF(cx-6,cy-4), QPointF(cx-2,cy-4),
+                              QPointF(cx-2,cy+10), QPointF(cx+2,cy+10), QPointF(cx+2,cy-4),
+                              QPointF(cx+6,cy-4)])
+        p.drawPolygon(poly)
+        p.restore()
+
+    def _pretty_next_label(self) -> str:
+        # 하단 좌측 라벨 : 다음 이벤트 텍스트(간결)
+        if not self.next_direction:
+            if "목적지" in self.current_direction:
+                return "곧 목적지"
+            return "경로 안내"
+        return self.next_direction
+
+    # ---------- 외부에서 쓰는 API(그대로 유지) ----------
+    def update_navigation_info(self, instructions, current_speed=0, route_progress=0):
+        """
+        기존 시그니처 유지. 내부 로직만 HUD 규칙에 맞춰 해석.
+        - 5m 초과: 상단 체브론은 '직진', 하단 좌측에 다음 턴(50m 이내면 예고)
+        - 5m 이내: 상단 체브론은 실제 방향(좌/우/도착), 하단 좌측엔 다음 이벤트 요약
+        """
+        self.speed    = current_speed
+        self.progress = route_progress
+
+        if not instructions:
+            self.current_direction = "직진"
+            self.current_distance  = 0.0
+            self.next_direction    = ""
+            self.update(); return
+
+        direction, distance = instructions[0]
+        self.current_distance = distance
+
+        if distance > 5:
+            # 멀리 있으면 상단은 직진, 하단엔 다음 이벤트를 50m 이내일 때만 예고
+            self.current_direction = "직진"
+            if ("좌회전" in direction or "우회전" in direction or "목적지" in direction) and distance <= 50:
+                self.next_direction = direction
+            else:
+                self.next_direction = ""
         else:
-            self.current_direction, self.current_distance = current_action
-            self.next_direction = next_action if next_action else ""
+            # 근접하면 실제 이벤트 표시
+            self.current_direction = direction
+            # 다음 이벤트 요약은 “직진 N m” 또는 “직진 N m 후 도착”
+            if len(instructions) > 1:
+                next_dir, next_dist = instructions[1]
+                if "목적지" in next_dir:
+                    self.next_direction = f"직진 {int(round(next_dist))}m 후 도착"
+                else:
+                    self.next_direction = f"직진 {int(round(next_dist))}m"
+            else:
+                self.next_direction = ""
+
         self.update()
 
 # ===================================================================
-# 자동차 아이템
+# 자동차 아이템: QObject를 상속받아 시그널 사용이 가능하도록 수정
 # ===================================================================
 class CarItem(QGraphicsObject):
     positionChanged = pyqtSignal(QPointF)
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.car_shape = QPolygonF([QPointF(-15,-8),QPointF(15,-8),QPointF(15,8),QPointF(10,12),QPointF(-10,12),QPointF(-15,8)])
-        self._brush = QBrush(QColor(66, 135, 245)); self._pen = QPen(Qt.white, 2)
-        self.setFlag(QGraphicsItem.ItemIsMovable); self.setFlag(QGraphicsItem.ItemSendsGeometryChanges); self.setZValue(100)
-    def boundingRect(self): return self.car_shape.boundingRect()
-    def paint(self, painter, option, widget): painter.setBrush(self._brush); painter.setPen(self._pen); painter.drawPolygon(self.car_shape)
+        self.car_shape = QPolygonF([
+            QPointF(-15, -8), QPointF(15, -8), QPointF(15, 8),
+            QPointF(10, 12), QPointF(-10, 12), QPointF(-15, 8)
+        ])
+        self._brush = QBrush(QColor(66, 135, 245))
+        self._pen = QPen(Qt.white, 2)
+        
+        self.setFlag(QGraphicsItem.ItemIsMovable)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
+        self.setZValue(100)
+
+    def boundingRect(self):
+        return self.car_shape.boundingRect()
+
+    def paint(self, painter, option, widget):
+        painter.setBrush(self._brush)
+        painter.setPen(self._pen)
+        painter.drawPolygon(self.car_shape)
+
     def itemChange(self, change, value):
-        if change == QGraphicsItem.ItemPositionHasChanged: self.positionChanged.emit(value)
+        if change == QGraphicsItem.ItemPositionHasChanged:
+            self.positionChanged.emit(value)
         return super().itemChange(change, value)
 
 # ===================================================================
-# 메인 UI
+# 메인 UI: 주차장 지도 및 컨트롤
 # ===================================================================
 class ParkingLotUI(QWidget):
     SCENE_W, SCENE_H = 2000, 2000
@@ -158,26 +313,55 @@ class ParkingLotUI(QWidget):
         super().__init__()
         self.setWindowTitle("실내 주차장 UI (고급 HUD 네비게이션)")
         self.setGeometry(50, 50, 1700, 900)
-        main_layout = QHBoxLayout(self); left_panel = QWidget(); left_layout = QVBoxLayout(left_panel)
-        self.scene = QGraphicsScene(0, 0, self.SCENE_W, self.SCENE_H); self.scene.setItemIndexMethod(QGraphicsScene.NoIndex)
-        self.view = QGraphicsView(self.scene); self.view.setRenderHint(QPainter.Antialiasing); self.view.setViewportUpdateMode(QGraphicsView.MinimalViewportUpdate)
+
+        main_layout = QHBoxLayout(self)
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+
+        self.scene = QGraphicsScene(0, 0, self.SCENE_W, self.SCENE_H)
+        self.scene.setItemIndexMethod(QGraphicsScene.NoIndex)
+        self.view = QGraphicsView(self.scene)
+        self.view.setRenderHint(QPainter.Antialiasing)
+        self.view.setViewportUpdateMode(QGraphicsView.MinimalViewportUpdate)
         self.view.scale(0.5, 0.5); self.view.scale(1, -1); self.view.translate(0, -self.SCENE_H)
+
         self.le1 = QLineEdit(); self.le1.setPlaceholderText("예: 1300,925 (필수)")
         self.le2 = QLineEdit(); self.le2.setPlaceholderText("예: 1475,925 (선택)")
         self.le3 = QLineEdit(); self.le3.setPlaceholderText("예: 1475,1300 (선택)")
-        self.btn_apply = QPushButton("경로 안내"); self.btn_apply.clicked.connect(self.apply_route_from_inputs)
+        self.btn_apply = QPushButton("경로 안내")
+        self.btn_apply.clicked.connect(self.apply_route_from_inputs)
+
         row1 = QHBoxLayout(); row1.addWidget(QLabel("W1:")); row1.addWidget(self.le1)
         row2 = QHBoxLayout(); row2.addWidget(QLabel("W2:")); row2.addWidget(self.le2)
         row3 = QHBoxLayout(); row3.addWidget(QLabel("W3:")); row3.addWidget(self.le3)
         controls = QHBoxLayout(); controls.addStretch(1); controls.addWidget(self.btn_apply)
-        left_layout.addWidget(self.view); left_layout.addLayout(row1); left_layout.addLayout(row2); left_layout.addLayout(row3); left_layout.addLayout(controls)
-        self.hud = AdvancedHudWidget(); main_layout.addWidget(left_panel, 3); main_layout.addWidget(self.hud, 1)
+
+        left_layout.addWidget(self.view)
+        left_layout.addLayout(row1); left_layout.addLayout(row2); left_layout.addLayout(row3)
+        left_layout.addLayout(controls)
+
+        # 고급 HUD 위젯 사용
+        self.hud = AdvancedHudWidget()
+        main_layout.addWidget(left_panel, 3)
+        main_layout.addWidget(self.hud, 1)
+
         self.layer_static = QGraphicsItemGroup(); self.layer_path = QGraphicsItemGroup()
         self.scene.addItem(self.layer_static); self.scene.addItem(self.layer_path)
-        self.full_path_points = []; self.snapped_waypoints = []; self.current_path_segment_index = 0
-        self.car = CarItem(); self.car.positionChanged.connect(self.update_hud_from_car_position)
-        self.scene.addItem(self.car); self.car.hide()
-        self.build_static_layout(); self.build_occupancy(); self.hud.update_navigation_info(None, None)
+
+        self.full_path_points = []
+        self.snapped_waypoints = []
+        self.current_path_segment_index = 0
+        
+        self.car = CarItem()
+        self.car.positionChanged.connect(self.update_hud_from_car_position)
+        self.scene.addItem(self.car)
+        self.car.hide()
+
+        self.build_static_layout()
+        self.build_occupancy()
+        
+        # 초기 HUD 상태
+        self.hud.update_navigation_info([])
 
     def add_block(self, x, y, w, h, color, label=""):
         r = QGraphicsRectItem(QRectF(x, y, w, h)); r.setBrush(QBrush(color)); r.setPen(QPen(Qt.black)); r.setParentItem(self.layer_static)
@@ -274,9 +458,9 @@ class ParkingLotUI(QWidget):
             path.lineTo(pts[-1])
         item = self.scene.addPath(path, QPen(QColor(255, 77, 77, 220), self.PATH_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)); item.setParentItem(self.layer_path)
 
-    def _calculate_turn_events(self, pts):
+    def generate_hud_instructions(self, pts):
         if len(pts) < 2: return []
-        turn_events = []; total_distance = 0
+        instructions = []; total_distance = 0
         for i in range(len(pts) - 1):
             p1, p2 = pts[i], pts[i+1]
             dist_meters = sqrt((p2.x() - p1.x())**2 + (p2.y() - p1.y())**2) / self.PIXELS_PER_METER
@@ -288,26 +472,72 @@ class ParkingLotUI(QWidget):
                 direction = ""
                 if turn_angle > 45: direction = "좌회전"
                 elif turn_angle < -45: direction = "우회전"
-                if direction:
-                    turn_events.append((direction, total_distance))
-                    total_distance = 0
-        turn_events.append(("목적지 도착", total_distance))
-        return turn_events
+                if direction: instructions.append((direction, total_distance)); total_distance = 0
+        instructions.append(("목적지 도착", total_distance))
+        return instructions
 
-    def generate_display_instructions(self, pts):
-        all_turns = self._calculate_turn_events(pts)
-        if not all_turns: return (("목적지 도착", 0), None)
-        first_direction, first_distance = all_turns[0]
-        if first_distance > 5 and "도착" not in first_direction:
-            current_action = ("직진", first_distance)
-            next_action = first_direction
-        else:
-            current_action = (first_direction, first_distance)
-            if len(all_turns) > 1:
-                next_action = all_turns[1][0]
-            else:
-                next_action = None
-        return current_action, next_action
+    def calculate_route_progress(self, car_pos):
+        """전체 경로 대비 현재 진행률 정확히 계산"""
+        if not self.full_path_points or len(self.full_path_points) < 2:
+            return 0
+        
+        # 전체 경로 길이 계산
+        total_length = 0
+        for i in range(len(self.full_path_points) - 1):
+            p1, p2 = self.full_path_points[i], self.full_path_points[i + 1]
+            total_length += sqrt((p2.x() - p1.x())**2 + (p2.y() - p1.y())**2)
+        
+        if total_length == 0:
+            return 0
+        
+        # 현재 위치에서 가장 가까운 경로상의 점과 구간 찾기
+        min_dist = float('inf')
+        closest_segment = 0
+        projection_ratio = 0
+        
+        for i in range(len(self.full_path_points) - 1):
+            p1 = self.full_path_points[i]
+            p2 = self.full_path_points[i + 1]
+            
+            # 벡터 계산
+            segment_vec = QPointF(p2.x() - p1.x(), p2.y() - p1.y())
+            car_vec = QPointF(car_pos.x() - p1.x(), car_pos.y() - p1.y())
+            
+            segment_length_sq = segment_vec.x()**2 + segment_vec.y()**2
+            
+            if segment_length_sq == 0:
+                continue
+            
+            # 투영 비율 계산 (0~1 사이로 클램핑)
+            t = max(0, min(1, (car_vec.x() * segment_vec.x() + car_vec.y() * segment_vec.y()) / segment_length_sq))
+            
+            # 투영된 점
+            projection = QPointF(p1.x() + t * segment_vec.x(), p1.y() + t * segment_vec.y())
+            
+            # 자동차와 투영점 사이의 거리
+            dist = sqrt((car_pos.x() - projection.x())**2 + (car_pos.y() - projection.y())**2)
+            
+            if dist < min_dist:
+                min_dist = dist
+                closest_segment = i
+                projection_ratio = t
+        
+        # 시작점부터 현재 위치까지의 거리 계산
+        traveled_length = 0
+        
+        # 현재 구간 이전의 모든 구간 길이 합산
+        for i in range(closest_segment):
+            p1, p2 = self.full_path_points[i], self.full_path_points[i + 1]
+            traveled_length += sqrt((p2.x() - p1.x())**2 + (p2.y() - p1.y())**2)
+        
+        # 현재 구간에서의 진행 거리 추가
+        if closest_segment < len(self.full_path_points) - 1:
+            p1, p2 = self.full_path_points[closest_segment], self.full_path_points[closest_segment + 1]
+            segment_length = sqrt((p2.x() - p1.x())**2 + (p2.y() - p1.y())**2)
+            traveled_length += segment_length * projection_ratio
+        
+        progress = min(100, (traveled_length / total_length) * 100)
+        return progress
 
     def clear_path_layer(self):
         for child in self.layer_path.childItems(): child.setParentItem(None); self.scene.removeItem(child)
@@ -344,6 +574,7 @@ class ParkingLotUI(QWidget):
             t = QGraphicsSimpleTextItem(f"W{i}"); t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             t.setPos(p.x()-6, p.y()+10); t.setBrush(QColor(30,30,30)); t.setParentItem(self.layer_path)
 
+        # 경로 생성 후 상태 초기화
         self.current_path_segment_index = 0
         self.car.setPos(self.ENTRANCE)
         self.car.show()
@@ -351,9 +582,11 @@ class ParkingLotUI(QWidget):
         self.btn_apply.setText("경로 재설정")
 
     def _update_current_segment(self, car_pos):
+        """차량의 위치를 기반으로 현재 주행 중인 경로의 구간을 업데이트합니다."""
         if not self.full_path_points or len(self.full_path_points) < 2:
             return
 
+        # 차량이 마지막 구간을 넘어가지 않도록 반복 범위를 제한합니다.
         while self.current_path_segment_index < len(self.full_path_points) - 2:
             p1 = self.full_path_points[self.current_path_segment_index]
             p2 = self.full_path_points[self.current_path_segment_index + 1]
@@ -369,27 +602,46 @@ class ParkingLotUI(QWidget):
             t = dot_product / length_sq
 
             if t > 1:
+                # 투영된 위치가 현재 구간의 끝점을 넘었으므로 다음 구간으로 이동합니다.
                 self.current_path_segment_index += 1
             else:
+                # 차량이 현재 구간 내에 있으므로 루프를 중단합니다.
                 break
 
     def update_hud_from_car_position(self, car_pos):
+        """차량의 위치가 변경될 때마다 호출되어 HUD를 업데이트합니다."""
         if not self.full_path_points:
             return
 
+        # 1. 차량의 현재 주행 구간을 갱신합니다.
         self._update_current_segment(car_pos)
 
+        # 2. 현재 위치부터 남은 경로 노드들을 가져옵니다.
         remaining_turn_points = self.full_path_points[self.current_path_segment_index + 1:]
+        
+        # 3. HUD 안내 생성을 위해 경로의 시작점으로 현재 차량 위치를 추가합니다.
         path_for_hud = [car_pos] + remaining_turn_points
         
         if len(path_for_hud) < 2:
-            self.hud.update_navigation_info(("목적지 도착", 0), None, current_speed=0)
+            # 목적지 도착
+            self.hud.update_navigation_info([("목적지 도착", 0)], 
+                                           current_speed=0, 
+                                           route_progress=100)
             return
             
-        current_action, next_action = self.generate_display_instructions(path_for_hud)
-        speed = min(60, int(self.current_path_segment_index * 5 + 10))
+        # 4. 생성된 경로를 기반으로 HUD 안내를 생성합니다.
+        instructions = self.generate_hud_instructions(path_for_hud)
         
-        self.hud.update_navigation_info(current_action, next_action, current_speed=speed)
+        # 5. 진행률과 속도 계산
+        progress = self.calculate_route_progress(car_pos)
+        
+        # 속도는 임의로 설정 (실제로는 이동 거리/시간으로 계산 가능)
+        speed = min(60, int(progress * 0.6 + 10))  # 10~70 km/h 범위
+        
+        # 6. 고급 HUD 업데이트
+        self.hud.update_navigation_info(instructions, 
+                                       current_speed=speed, 
+                                       route_progress=progress)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
