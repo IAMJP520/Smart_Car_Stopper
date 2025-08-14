@@ -367,69 +367,49 @@ class AdvancedHudWidget(QFrame):
         painter.restore()
 
     def update_navigation_info(self, instructions, current_speed=0, route_progress=0):
-        """네비게이션 정보 업데이트 - 개선된 다음 경로 표시 로직"""
+
         self.speed = current_speed
         self.progress = route_progress
-        
+
         if not instructions:
             self.current_direction = "경로를 생성하세요"
-            self.current_distance = 0
-            self.next_direction = ""
-        else:
-            # 첫 번째 지시사항
-            direction, distance = instructions[0]
-            
-            # 거리 기반 방향 표시 제어
-            if distance <= 5:  # 5m 이내일 때만 실제 방향 표시
-                if "좌회전" in direction or "우회전" in direction or "목적지" in direction:
-                    self.current_direction = direction
-                    # 5m 이내에 들어왔을 때 다음 지시사항 표시
-                    if len(instructions) > 1:
-                        next_dir, next_dist = instructions[1]
-                        self.next_direction = next_dir
-                    else:
-                        self.next_direction = ""
-                else:
-                    self.current_direction = "직진"
-                    # 직진일 때 다음 지시사항 처리
-                    if len(instructions) > 1:
-                        next_dir, next_dist = instructions[1]
-                        if next_dist <= 10:
-                            self.next_direction = next_dir
-                        else:
-                            self.next_direction = ""
-                    else:
-                        self.next_direction = ""
+            self.current_distance  = 0.0
+            self.next_direction    = ""
+            self.update()
+            return
+
+        direction, distance = instructions[0]  # 바로 앞 단계(다음 이벤트)와까지의 거리
+
+        # --- 턴/도착까지 먼 경우: 상단은 직진, 하단은 '다음 턴'을 필요하면 예고 ---
+        if distance > 5:
+            self.current_direction = "직진"
+            self.current_distance  = distance
+            # 50m 이내면 '다음' 미리보기로 다음 턴을 띄움
+            if ("좌회전" in direction or "우회전" in direction or "목적지" in direction) and distance <= 50:
+                self.next_direction = direction
             else:
-                # 5m 초과일 때는 무조건 직진 표시하고 다음 턴 정보 미리 표시
-                if "좌회전" in direction or "우회전" in direction:
-                    self.current_direction = f"직진"
-                    # 다음에 올 턴을 미리 표시 (거리가 멀어도)
-                    if distance <= 50:  # 50m 이내일 때만 미리 표시
-                        self.next_direction = direction
-                    else:
-                        self.next_direction = ""
-                elif "목적지" in direction:
-                    self.current_direction = "직진"
-                    if distance <= 50:
-                        self.next_direction = "목적지 도착"
-                    else:
-                        self.next_direction = ""
-                else:
-                    self.current_direction = "직진"
-                    # 일반 직진일 때 다음 지시사항
-                    if len(instructions) > 1:
-                        next_dir, next_dist = instructions[1]
-                        if next_dist <= 50:  # 50m 이내 다음 지시사항 미리 표시
-                            self.next_direction = next_dir
-                        else:
-                            self.next_direction = ""
-                    else:
-                        self.next_direction = ""
-            
-            self.current_distance = distance
-        
-        self.update()  # 화면 다시 그리기
+                self.next_direction = ""
+            self.update()
+            return
+
+        # --- 턴/도착 5m 이내: 상단은 해당 이벤트(좌/우/도착) ---
+        self.current_direction = direction
+        self.current_distance  = distance
+
+        # '다음'은 현재 턴 이후의 **직진 구간**을 보여준다
+        if len(instructions) > 1:
+            next_dir, next_dist = instructions[1]
+            # 다음 이벤트가 목적지면 '직진 N m 후 도착' 형태
+            if "목적지" in next_dir:
+                self.next_direction = f"직진 {int(round(next_dist))}m 후 도착"
+            else:
+                # 다음 이벤트(다음 턴) 전까지는 직진
+                self.next_direction = f"직진 {int(round(next_dist))}m"
+        else:
+            self.next_direction = ""
+
+        self.update()
+
 
 # ===================================================================
 # 자동차 아이템: QObject를 상속받아 시그널 사용이 가능하도록 수정
