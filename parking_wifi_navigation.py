@@ -21,7 +21,7 @@ from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
 class WaypointReceiver:
     """라즈베리파이로부터 waypoint를 수신하는 클래스"""
 
-    def __init__(self, host='0.0.0.0', port=9999, raspberry_ip='192.168.1.200'):
+    def __init__(self, host='192.168.0.74', port=9999, raspberry_ip='192.168.1.200'):
         self.host = host
         self.port = port
         self.raspberry_ip = raspberry_ip
@@ -674,7 +674,7 @@ class ParkingLotUI(QWidget):
     def init_wifi_receiver(self):
         """Waypoint 수신기를 초기화하고 시작합니다."""
         print("\n--- WiFi 수신기 설정 ---")
-        self.waypoint_receiver = WaypointReceiver(host='0.0.0.0', port=9999)
+        self.waypoint_receiver = WaypointReceiver(host='192.168.0.74', port=9999)
         self.waypoint_receiver.set_waypoint_callback(self.handle_new_waypoints_from_thread)
         self.waypoint_receiver.start_receiver()
         QMessageBox.information(self, "WiFi 수신기", f"서버가 {self.waypoint_receiver.host}:{self.waypoint_receiver.port}에서 시작되었습니다.\n관제 서버의 연결을 기다립니다.")

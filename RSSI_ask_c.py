@@ -681,15 +681,15 @@ class ResultScreen(QWidget):
         """parking_ui_testing_2.py 실행 후 현재 창 종료"""
         try:
             # parking_ui_testing_2.py 실행
-            subprocess.Popen([sys.executable, 'parking_ui_testing_2.py'])
+            subprocess.Popen([sys.executable, 'parking_ui_testing_darkblue.py'])
             # 현재 애플리케이션 종료
             QApplication.quit()
         except FileNotFoundError:
-            print("parking_ui_testing_2.py 파일을 찾을 수 없습니다.")
+            print("parking_ui_testing_darkblue.py 파일을 찾을 수 없습니다.")
             # 파일이 없으면 기본 동작 (홈으로 돌아가기)
             self.go_back_to_home()
         except Exception as e:
-            print(f"parking_ui_testing_2.py 실행 중 오류 발생: {e}")
+            print(f"parking_ui_testing_darkblue.py 실행 중 오류 발생: {e}")
             self.go_back_to_home()
         
     def go_back_to_home(self):
