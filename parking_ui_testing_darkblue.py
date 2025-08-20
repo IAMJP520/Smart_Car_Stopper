@@ -1272,5 +1272,5 @@ if __name__ == "__main__":
     """)
     
     ui = ParkingLotUI()
-    ui.show()
+    ui.showMaximized()
     sys.exit(app.exec_())

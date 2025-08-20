@@ -4,17 +4,17 @@ import datetime
 import subprocess
 import os
 from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QPushButton,
-                             QVBoxLayout, QHBoxLayout, QDialog, QFrame, 
+                             QVBoxLayout, QHBoxLayout, QDialog, QFrame,
                              QStackedWidget, QGridLayout, QProgressBar)
-from PyQt5.QtGui import (QPixmap, QFont, QPainter, QPainterPath, QLinearGradient, 
-                        QColor, QIcon, QBrush, QPen, QPolygonF)
+from PyQt5.QtGui import (QPixmap, QFont, QPainter, QPainterPath, QLinearGradient,
+                         QColor, QIcon, QBrush, QPen, QPolygonF)
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QPointF
 
 # --- 1. 현대차 스타일 컬러 팔레트 및 기본 스타일 ---
 
 HYUNDAI_COLORS = {
     'primary': '#002C5F',      # 현대차 딥 블루
-    'secondary': '#007FA3',    # 현대차 라이트 블루  
+    'secondary': '#007FA3',    # 현대차 라이트 블루
     'accent': '#00AAD2',       # 현대차 시안
     'success': '#00C851',      # 그린
     'warning': '#FFB300',      # 앰버
@@ -25,47 +25,66 @@ HYUNDAI_COLORS = {
     'glass': 'rgba(255, 255, 255, 0.1)' # 글래스모피즘
 }
 
+# --- 해상도 독립적인 폰트 크기 (단위: pt) ---
+FONT_SIZES = {
+    'status_bar_location': 12,
+    'status_bar_date': 11,
+    'status_bar_time': 28,
+    'status_bar_weather': 12,
+    'status_bar_radio': 11,
+    'main_title': 32,
+    'main_subtitle': 16,
+    'button': 16,
+    'scenario_title': 26,
+    'scenario_subtitle': 16,
+    'scenario_info': 14,
+    'scanner_text': 18,
+    'timer': 14,
+    'progress_bar': 12,
+}
+
+
 class HyundaiBackground(QWidget):
-    """현대차 스타일 배경 위젯"""
+    """현대차 스타일 배경 위젯 (크기 조절에 반응하도록 수정)"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(1000, 700)
-        
+        # 위젯이 부모 크기에 맞춰 자동으로 조절되도록 설정
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAutoFillBackground(True)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        
+
+        w, h = self.width(), self.height()
+
         # 1. 기본 다크 배경
-        gradient = QLinearGradient(0, 0, self.width(), self.height())
+        gradient = QLinearGradient(0, 0, w, h)
         gradient.setColorAt(0, QColor('#0A0E1A'))
         gradient.setColorAt(0.5, QColor('#1A1E2E'))
         gradient.setColorAt(1, QColor('#0F1419'))
         painter.fillRect(self.rect(), QBrush(gradient))
-        
-        # 2. 기하학적 라인 패턴 (현대차 스타일)
+
+        # 2. 기하학적 라인 패턴
         painter.setPen(QPen(QColor(0, 170, 210, 30), 1))
-        
-        # 격자 패턴
-        for i in range(0, self.width(), 50):
-            painter.drawLine(i, 0, i, self.height())
-        for i in range(0, self.height(), 50):
-            painter.drawLine(0, i, self.width(), i)
-            
-        # 3. 현대차 로고 영역 표현 (좌상단)
+        for i in range(0, w, 50):
+            painter.drawLine(i, 0, i, h)
+        for i in range(0, h, 50):
+            painter.drawLine(0, i, w, i)
+
+        # 3. 좌상단 타원형 디자인 (창 크기에 비례하도록 수정)
         painter.setPen(QPen(QColor(0, 170, 210, 80), 2))
         painter.setBrush(QBrush(QColor(0, 170, 210, 20)))
-        
-        # 타원형 디자인 요소들
-        painter.drawEllipse(50, 50, 200, 100)
-        painter.drawEllipse(200, 150, 150, 75)
-        
-        # 4. 우하단 곡선 디자인
+        painter.drawEllipse(QPointF(w * 0.15, h * 0.15), w * 0.12, h * 0.1)
+        painter.drawEllipse(QPointF(w * 0.27, h * 0.25), w * 0.1, h * 0.08)
+
+        # 4. 우하단 곡선 디자인 (창 크기에 비례하도록 수정)
         path = QPainterPath()
-        path.moveTo(self.width() - 300, self.height())
-        path.quadTo(self.width() - 100, self.height() - 200, self.width(), self.height() - 100)
-        path.lineTo(self.width(), self.height())
+        path.moveTo(w * 0.7, h)
+        path.quadTo(w * 0.9, h * 0.7, w, h * 0.85)
+        path.lineTo(w, h)
         path.closeSubpath()
-        
+
         painter.setPen(Qt.NoPen)
         painter.setBrush(QBrush(QColor(0, 123, 163, 40)))
         painter.drawPath(path)
@@ -75,135 +94,109 @@ class StatusBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.initUI()
-        
-        # 1초마다 시간 업데이트
-        self.timer = QTimer()
+
+        self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_time)
         self.timer.start(1000)
-        
+        self.update_time()
+
     def initUI(self):
         layout = QHBoxLayout()
         layout.setContentsMargins(30, 15, 30, 15)
-        
+
         # 왼쪽: 위치 정보
         location_layout = QHBoxLayout()
         location_icon = QLabel("📍")
-        location_icon.setStyleSheet("font-size: 16px; color: white;")
-        
+        location_icon.setStyleSheet(f"font-size: {FONT_SIZES['status_bar_location']}pt; color: white;")
+
         self.location_label = QLabel("Seocho-gu, Seoul")
         self.location_label.setStyleSheet(f"""
             QLabel {{
                 color: {HYUNDAI_COLORS['text_primary']};
-                font-size: 14px;
+                font-size: {FONT_SIZES['status_bar_location']}pt;
                 font-weight: bold;
             }}
         """)
-        
         location_layout.addWidget(location_icon)
         location_layout.addWidget(self.location_label)
         location_layout.addStretch()
-        
+
         # 중앙: 시간
         time_layout = QVBoxLayout()
         time_layout.setSpacing(0)
-        
-        # 날짜
         self.date_label = QLabel()
         self.date_label.setAlignment(Qt.AlignCenter)
         self.date_label.setStyleSheet(f"""
             QLabel {{
                 color: {HYUNDAI_COLORS['text_secondary']};
-                font-size: 12px;
+                font-size: {FONT_SIZES['status_bar_date']}pt;
             }}
         """)
-        
-        # 시간
         self.time_label = QLabel()
         self.time_label.setAlignment(Qt.AlignCenter)
         self.time_label.setStyleSheet(f"""
             QLabel {{
                 color: {HYUNDAI_COLORS['text_primary']};
-                font-size: 32px;
+                font-size: {FONT_SIZES['status_bar_time']}pt;
                 font-weight: bold;
             }}
         """)
-        
         time_layout.addWidget(self.date_label)
         time_layout.addWidget(self.time_label)
-        
+
         # 오른쪽: 날씨와 라디오
         right_layout = QVBoxLayout()
         right_layout.setSpacing(5)
-        
-        # 날씨
         weather_layout = QHBoxLayout()
         weather_layout.addStretch()
-        
         temp_label = QLabel("26°C")
         temp_label.setStyleSheet(f"""
             QLabel {{
                 color: {HYUNDAI_COLORS['text_primary']};
-                font-size: 14px;
+                font-size: {FONT_SIZES['status_bar_weather']}pt;
                 font-weight: bold;
             }}
         """)
-        
         weather_icon = QLabel("🌙")
-        weather_icon.setStyleSheet("font-size: 16px;")
-        
+        weather_icon.setStyleSheet(f"font-size: {FONT_SIZES['status_bar_weather']}pt;")
         weather_layout.addWidget(temp_label)
         weather_layout.addWidget(weather_icon)
-        
-        # 라디오
+
         radio_layout = QHBoxLayout()
         radio_layout.addStretch()
-        
         radio_label = QLabel("FM 87.5")
         radio_label.setStyleSheet(f"""
             QLabel {{
                 color: {HYUNDAI_COLORS['text_secondary']};
-                font-size: 12px;
+                font-size: {FONT_SIZES['status_bar_radio']}pt;
             }}
         """)
-        
         radio_layout.addWidget(radio_label)
-        
         right_layout.addLayout(weather_layout)
         right_layout.addLayout(radio_layout)
-        
+
         # 메인 레이아웃에 추가
-        layout.addLayout(location_layout)
-        layout.addStretch()
-        layout.addLayout(time_layout)
-        layout.addStretch()
-        layout.addLayout(right_layout)
-        
+        layout.addLayout(location_layout, 1)
+        layout.addLayout(time_layout, 2)
+        layout.addLayout(right_layout, 1)
+
         self.setLayout(layout)
-        self.update_time()
-        
-        # 스타일 설정
-        self.setStyleSheet(f"""
-            QWidget {{
+        self.setStyleSheet("""
+            QWidget {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgba(26, 30, 46, 0.9),
-                    stop:1 rgba(10, 14, 26, 0.7));
+                                stop:0 rgba(26, 30, 46, 0.9),
+                                stop:1 rgba(10, 14, 26, 0.7));
                 border-bottom: 1px solid rgba(0, 170, 210, 0.3);
-            }}
+            }
         """)
-        
+
     def update_time(self):
-        """시간 업데이트"""
         now = datetime.datetime.now()
-        
-        # 날짜 (한국어)
         weekdays = ['월', '화', '수', '목', '금', '토', '일']
         date_str = f"{now.month}월 {now.day}일 ({weekdays[now.weekday()]})"
         self.date_label.setText(date_str)
-        
-        # 시간
         time_str = now.strftime("%H:%M")
-        am_pm = "AM" if now.hour < 12 else "PM"
-        self.time_label.setText(f"{time_str} {am_pm}")
+        self.time_label.setText(time_str)
 
 class AnimatedButton(QPushButton):
     """애니메이션 효과가 있는 현대차 스타일 버튼"""
@@ -214,430 +207,219 @@ class AnimatedButton(QPushButton):
         self.default_style = f"""
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(0, 44, 95, 0.8), 
+                    stop:0 rgba(0, 44, 95, 0.8),
                     stop:1 rgba(0, 127, 163, 0.8));
                 color: white;
                 border: 2px solid rgba(0, 170, 210, 0.5);
                 border-radius: 25px;
-                font-size: 18px;
+                font-size: {FONT_SIZES['button']}pt;
                 font-weight: bold;
-                padding: 20px 40px;
+                padding: 15px 30px;
                 backdrop-filter: blur(10px);
             }}
         """
         self.hover_style = f"""
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(0, 170, 210, 0.9), 
+                    stop:0 rgba(0, 170, 210, 0.9),
                     stop:1 rgba(0, 127, 163, 0.9));
                 color: white;
                 border: 2px solid rgba(0, 170, 210, 0.8);
                 border-radius: 25px;
-                font-size: 18px;
+                font-size: {FONT_SIZES['button']}pt;
                 font-weight: bold;
-                padding: 20px 40px;
+                padding: 15px 30px;
                 backdrop-filter: blur(10px);
             }}
         """
         self.setStyleSheet(self.default_style)
-        
+
     def enterEvent(self, event):
         self.setStyleSheet(self.hover_style)
         super().enterEvent(event)
-        
+
     def leaveEvent(self, event):
         self.setStyleSheet(self.default_style)
         super().leaveEvent(event)
 
-# --- 2. 차량 타입 선택 화면 ---
-
-class VehicleTypeSelector(QWidget):
-    """차량 타입을 선택하는 초기 화면"""
+# --- 공통 화면 레이아웃 클래스 ---
+class BaseScreen(QWidget):
+    """화면들의 공통적인 배경과 레이아웃 구조를 정의하는 기본 클래스"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
+
+        # 전체 화면을 덮는 배경 위젯
+        self.background = HyundaiBackground(self)
+
+        # 컨텐츠를 담을 메인 위젯 (투명)
+        self.main_widget = QWidget(self)
+        self.main_widget.setStyleSheet("background: transparent;")
+
+        # 메인 위젯의 레이아웃
+        self.content_layout = QVBoxLayout(self.main_widget)
+        self.content_layout.setSpacing(30)
+        self.content_layout.setContentsMargins(80, 80, 80, 80)
+
+        # 전체 레이아웃 설정
+        full_layout = QVBoxLayout(self)
+        full_layout.setContentsMargins(0, 0, 0, 0)
+        full_layout.addWidget(self.main_widget)
+        self.setLayout(full_layout)
+
+    def resizeEvent(self, event):
+        # 창 크기가 변경될 때 배경 위젯의 크기도 함께 조절
+        self.background.resize(event.size())
+        super().resizeEvent(event)
+
+# --- 2. 1단계: 차량 타입 선택 화면 ---
+class VehicleTypeSelector(BaseScreen):
+    """1단계: 차량 타입을 선택하는 화면 (일반/전기차)"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.initUI()
-        
+
     def initUI(self):
-        # 배경 설정
-        background = HyundaiBackground(self)
-        
-        # 메인 컨텐츠
-        main_widget = QWidget()
-        main_widget.setStyleSheet("background: transparent;")
-        
-        layout = QVBoxLayout()
-        layout.setSpacing(40)
-        layout.setContentsMargins(80, 120, 80, 80)
-        
-        # 타이틀
         title = QLabel("SmartParking System")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"""
             QLabel {{
-                font-size: 36px;
+                font-size: {FONT_SIZES['main_title']}pt;
                 font-weight: bold;
                 color: {HYUNDAI_COLORS['text_primary']};
-                margin-bottom: 10px;
                 text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
             }}
         """)
-        
-        # 서브타이틀
+
         subtitle = QLabel("차량 유형을 선택해주세요")
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet(f"""
             QLabel {{
-                font-size: 18px;
+                font-size: {FONT_SIZES['main_subtitle']}pt;
                 color: {HYUNDAI_COLORS['text_secondary']};
-                margin-bottom: 40px;
+                margin-bottom: 20px;
             }}
         """)
-        
-        # 차량 타입 버튼들
+
         button_layout = QVBoxLayout()
         button_layout.setSpacing(25)
-        
-        # 일반 차량 버튼
         regular_btn = AnimatedButton("🚗 일반 차량")
         regular_btn.clicked.connect(lambda: self.select_vehicle_type('regular'))
-        
-        # 전기차 버튼
         ev_btn = AnimatedButton("🔋 전기차")
         ev_btn.clicked.connect(lambda: self.select_vehicle_type('electric'))
-        
-        # 장애인 차량 버튼
-        handicapped_btn = AnimatedButton("♿ 장애인 차량")
-        handicapped_btn.clicked.connect(lambda: self.select_vehicle_type('handicapped'))
-        
         button_layout.addWidget(regular_btn)
         button_layout.addWidget(ev_btn)
-        button_layout.addWidget(handicapped_btn)
-        
-        layout.addStretch(1)
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addLayout(button_layout)
-        layout.addStretch(1)
-        
-        main_widget.setLayout(layout)
-        
-        # 전체 레이아웃
-        final_layout = QVBoxLayout()
-        final_layout.setContentsMargins(0, 0, 0, 0)
-        final_layout.addWidget(main_widget)
-        
-        self.setLayout(final_layout)
-        
+
+        self.content_layout.addStretch(2)
+        self.content_layout.addWidget(title)
+        self.content_layout.addWidget(subtitle)
+        self.content_layout.addLayout(button_layout)
+        self.content_layout.addStretch(3)
+
     def select_vehicle_type(self, vehicle_type):
-        """차량 타입 선택 후 메인 프로세스로 이동"""
-        if hasattr(self.parent_window, 'show_main_process'):
-            self.parent_window.show_main_process(vehicle_type)
+        if hasattr(self.parent_window, 'show_accessibility_selector'):
+            self.parent_window.show_accessibility_selector(vehicle_type)
 
-# --- 3. 메인 프로세스 화면들 ---
-
-class ProcessingScreen(QWidget):
-    """차량 처리 중 화면"""
+# --- 3. 2단계: 장애 유무 선택 화면 ---
+class AccessibilitySelector(BaseScreen):
+    """2단계: 장애 유무를 선택하는 화면"""
     def __init__(self, vehicle_type, parent=None):
         super().__init__(parent)
         self.vehicle_type = vehicle_type
-        self.parent_window = parent
         self.initUI()
-        self.start_processing()
-        
+
     def initUI(self):
-        # 배경 설정
-        background = HyundaiBackground(self)
-        
-        main_widget = QWidget()
-        main_widget.setStyleSheet("background: transparent;")
-        
-        layout = QVBoxLayout()
-        layout.setSpacing(50)
-        layout.setContentsMargins(100, 120, 100, 100)
-        
-        # 차량 아이콘
-        icon_label = QLabel()
-        icon_text = "🚗" if self.vehicle_type == 'regular' else "🔋" if self.vehicle_type == 'electric' else "♿"
-        icon_label.setText(icon_text)
-        icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setStyleSheet("""
-            QLabel {
-                font-size: 100px;
-                margin-bottom: 30px;
-            }
-        """)
-        
-        # 처리 중 메시지
-        self.status_label = QLabel("차량 정보를 확인하고 있습니다...")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet(f"""
+        vehicle_icon = "🚗" if self.vehicle_type == 'regular' else "🔋"
+        vehicle_name = "일반 차량" if self.vehicle_type == 'regular' else "전기차"
+        title = QLabel(f"{vehicle_icon} {vehicle_name}")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"""
             QLabel {{
-                font-size: 26px;
-                color: {HYUNDAI_COLORS['text_primary']};
+                font-size: {FONT_SIZES['scenario_title']}pt;
                 font-weight: bold;
-                margin-bottom: 40px;
+                color: {HYUNDAI_COLORS['text_primary']};
                 text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
             }}
         """)
-        
-        # 진행률 표시바 (현대차 스타일)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setMinimumHeight(35)
-        self.progress_bar.setStyleSheet(f"""
-            QProgressBar {{
-                border: none;
-                border-radius: 17px;
-                background: rgba(26, 30, 46, 0.8);
-                color: white;
-                text-align: center;
-                font-size: 16px;
-                font-weight: bold;
-            }}
-            QProgressBar::chunk {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {HYUNDAI_COLORS['accent']}, 
-                    stop:1 {HYUNDAI_COLORS['secondary']});
-                border-radius: 17px;
-                margin: 2px;
+
+        subtitle = QLabel("장애인 주차구역 이용 여부를 선택해주세요")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet(f"""
+            QLabel {{
+                font-size: {FONT_SIZES['scenario_subtitle']}pt;
+                color: {HYUNDAI_COLORS['text_secondary']};
+                margin-bottom: 20px;
             }}
         """)
-        
-        layout.addStretch(1)
-        layout.addWidget(icon_label)
-        layout.addWidget(self.status_label)
-        layout.addWidget(self.progress_bar)
-        layout.addStretch(1)
-        
-        main_widget.setLayout(layout)
-        
-        final_layout = QVBoxLayout()
-        final_layout.setContentsMargins(0, 0, 0, 0)
-        final_layout.addWidget(main_widget)
-        
-        self.setLayout(final_layout)
-        
-    def start_processing(self):
-        """처리 시뮬레이션 시작"""
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_progress)
-        self.progress = 0
-        self.timer.start(60)  # 60ms마다 업데이트
-        
-    def update_progress(self):
-        """진행률 업데이트"""
-        self.progress += 2
-        self.progress_bar.setValue(self.progress)
-        
-        if self.progress >= 100:
-            self.timer.stop()
-            # 차량 타입에 따른 결과 화면으로 이동
-            QTimer.singleShot(500, self.show_result)
-            
-    def show_result(self):
-        """결과 화면 표시"""
-        if hasattr(self.parent_window, 'show_result_screen'):
-            self.parent_window.show_result_screen(self.vehicle_type)
 
-class ResultScreen(QWidget):
-    """결과 표시 화면"""
-    def __init__(self, vehicle_type, parent=None):
+        button_layout = QVBoxLayout()
+        button_layout.setSpacing(25)
+        handicapped_btn = AnimatedButton("♿ 장애인 전용 주차구역 이용")
+        handicapped_btn.clicked.connect(lambda: self.select_accessibility(True))
+        regular_btn = AnimatedButton("🅿️ 일반 주차구역 이용")
+        regular_btn.clicked.connect(lambda: self.select_accessibility(False))
+        button_layout.addWidget(handicapped_btn)
+        button_layout.addWidget(regular_btn)
+
+        back_btn = AnimatedButton("← 뒤로가기")
+        back_btn.setMinimumHeight(50)
+        back_btn.clicked.connect(self.go_back)
+
+        self.content_layout.addStretch(2)
+        self.content_layout.addWidget(title)
+        self.content_layout.addWidget(subtitle)
+        self.content_layout.addLayout(button_layout)
+        self.content_layout.addSpacing(40)
+        self.content_layout.addWidget(back_btn)
+        self.content_layout.addStretch(3)
+
+    def select_accessibility(self, is_handicapped):
+        if hasattr(self.parent_window, 'show_scenario'):
+            self.parent_window.show_scenario(self.vehicle_type, is_handicapped)
+
+    def go_back(self):
+        if hasattr(self.parent_window, 'show_home'):
+            self.parent_window.show_home()
+
+# --- 4. 시나리오별 화면들 ---
+class FingerprintAuthentication(BaseScreen):
+    """지문 인식 화면"""
+    def __init__(self, vehicle_type, fallback_scenario, parent=None):
         super().__init__(parent)
         self.vehicle_type = vehicle_type
-        self.parent_window = parent
+        self.fallback_scenario = fallback_scenario
+        self.authentication_timer = None
         self.initUI()
-        
+        self.start_authentication()
+
     def initUI(self):
-        # 배경 설정
-        background = HyundaiBackground(self)
-        
-        main_widget = QWidget()
-        main_widget.setStyleSheet("background: transparent;")
-        
-        layout = QVBoxLayout()
-        layout.setSpacing(40)
-        layout.setContentsMargins(80, 120, 80, 80)
-        
-        # 결과에 따른 컨텐츠 생성
-        if self.vehicle_type == 'regular':
-            self.create_regular_result(layout)
-        elif self.vehicle_type == 'electric':
-            self.create_electric_result(layout)
-        elif self.vehicle_type == 'handicapped':
-            self.create_handicapped_result(layout)
-            
-        main_widget.setLayout(layout)
-        
-        final_layout = QVBoxLayout()
-        final_layout.setContentsMargins(0, 0, 0, 0)
-        final_layout.addWidget(main_widget)
-        
-        self.setLayout(final_layout)
-        
-    def create_regular_result(self, layout):
-        """일반 차량 결과"""
-        # 성공 아이콘
-        success_label = QLabel("✅")
-        success_label.setAlignment(Qt.AlignCenter)
-        success_label.setStyleSheet("font-size: 80px; margin-bottom: 30px;")
-        
-        # 메시지
-        message = QLabel("차량 확인이 완료되었습니다")
-        message.setAlignment(Qt.AlignCenter)
-        message.setStyleSheet(f"""
-            QLabel {{
-                font-size: 28px;
-                color: {HYUNDAI_COLORS['text_primary']};
-                font-weight: bold;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-            }}
-        """)
-        
-        # 상세 정보
-        info = QLabel("주차장 입구가 곧 열립니다")
-        info.setAlignment(Qt.AlignCenter)
-        info.setStyleSheet(f"""
-            QLabel {{
-                font-size: 18px;
-                color: {HYUNDAI_COLORS['text_secondary']};
-            }}
-        """)
-        
-        # 확인 버튼
-        confirm_btn = AnimatedButton("확인")
-        confirm_btn.clicked.connect(self.launch_parking_ui)
-        
-        layout.addStretch(1)
-        layout.addWidget(success_label)
-        layout.addWidget(message)
-        layout.addWidget(info)
-        layout.addWidget(confirm_btn)
-        layout.addStretch(1)
-        
-    def launch_parking_ui(self):
-        """parking_ui_testing_2.py 실행 후 현재 창 종료"""
-        try:
-            # parking_ui_testing_2.py 실행
-            subprocess.Popen([sys.executable, 'parking_ui_testing_2.py'])
-            # 현재 애플리케이션 종료
-            QApplication.quit()
-        except FileNotFoundError:
-            print("parking_ui_testing_2.py 파일을 찾을 수 없습니다.")
-            # 파일이 없으면 기본 동작 (홈으로 돌아가기)
-            self.go_back_to_home()
-        except Exception as e:
-            print(f"parking_ui_testing_2.py 실행 중 오류 발생: {e}")
-            self.go_back_to_home()
-        
-    def create_electric_result(self, layout):
-        """전기차 결과"""
-        # 배터리 아이콘
-        battery_label = QLabel("🔋")
-        battery_label.setAlignment(Qt.AlignCenter)
-        battery_label.setStyleSheet("font-size: 80px; margin-bottom: 30px;")
-        
-        # 배터리 정보
-        battery_level = random.randint(20, 95)
-        message = QLabel(f"현재 배터리 용량: {battery_level}%")
-        message.setAlignment(Qt.AlignCenter)
-        message.setStyleSheet(f"""
-            QLabel {{
-                font-size: 28px;
-                color: {HYUNDAI_COLORS['text_primary']};
-                font-weight: bold;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-            }}
-        """)
-        
-        # 충전소 안내
-        charging_info = QLabel("전기차 충전구역으로 안내해드립니다")
-        charging_info.setAlignment(Qt.AlignCenter)
-        charging_info.setStyleSheet(f"""
-            QLabel {{
-                font-size: 18px;
-                color: {HYUNDAI_COLORS['text_secondary']};
-                margin-bottom: 30px;
-            }}
-        """)
-        
-        # 배터리 시각적 표시
-        battery_bar = QProgressBar()
-        battery_bar.setRange(0, 100)
-        battery_bar.setValue(battery_level)
-        battery_bar.setMinimumHeight(30)
-        battery_bar.setStyleSheet(f"""
-            QProgressBar {{
-                border: none;
-                border-radius: 15px;
-                background: rgba(26, 30, 46, 0.8);
-                color: white;
-                text-align: center;
-                font-size: 14px;
-                font-weight: bold;
-            }}
-            QProgressBar::chunk {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #00C851, stop:1 #69F0AE);
-                border-radius: 15px;
-                margin: 2px;
-            }}
-        """)
-        
-        # 버튼들
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(20)
-        normal_parking_btn = AnimatedButton("일반 주차")
-        charging_parking_btn = AnimatedButton("충전 주차")
-        
-        normal_parking_btn.clicked.connect(self.launch_parking_ui)
-        charging_parking_btn.clicked.connect(self.launch_parking_ui)
-        
-        button_layout.addWidget(normal_parking_btn)
-        button_layout.addWidget(charging_parking_btn)
-        
-        layout.addStretch(1)
-        layout.addWidget(battery_label)
-        layout.addWidget(message)
-        layout.addWidget(charging_info)
-        layout.addWidget(battery_bar)
-        layout.addLayout(button_layout)
-        layout.addStretch(1)
-        
-    def create_handicapped_result(self, layout):
-        """장애인 차량 결과"""
-        # 지문 인식 아이콘
         fingerprint_label = QLabel("👆")
         fingerprint_label.setAlignment(Qt.AlignCenter)
-        fingerprint_label.setStyleSheet("font-size: 80px; margin-bottom: 30px;")
-        
-        # 안내 메시지
+        fingerprint_label.setStyleSheet("font-size: 100pt; margin-bottom: 20px;")
+
         message = QLabel("장애인 주차구역 이용 안내")
         message.setAlignment(Qt.AlignCenter)
         message.setStyleSheet(f"""
             QLabel {{
-                font-size: 28px;
+                font-size: {FONT_SIZES['scenario_title']}pt;
                 color: {HYUNDAI_COLORS['text_primary']};
                 font-weight: bold;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
             }}
         """)
-        
-        # 지문 인식 안내
+
         fingerprint_info = QLabel("본인 확인을 위해 지문 인식을 진행해주세요")
         fingerprint_info.setAlignment(Qt.AlignCenter)
         fingerprint_info.setStyleSheet(f"""
             QLabel {{
-                font-size: 18px;
+                font-size: {FONT_SIZES['scenario_subtitle']}pt;
                 color: {HYUNDAI_COLORS['text_secondary']};
-                margin-bottom: 30px;
             }}
         """)
-        
-        # 지문 인식기 UI
+
+        self.timer_label = QLabel("5초 후 일반 구역으로 자동 배정됩니다")
+        self.timer_label.setAlignment(Qt.AlignCenter)
+        self.timer_label.setStyleSheet(f"font-size: {FONT_SIZES['timer']}pt; color: {HYUNDAI_COLORS['warning']};")
+
         fingerprint_scanner = QFrame()
         fingerprint_scanner.setMinimumHeight(140)
         fingerprint_scanner.setStyleSheet(f"""
@@ -645,131 +427,329 @@ class ResultScreen(QWidget):
                 border: 3px solid rgba(0, 170, 210, 0.6);
                 border-radius: 25px;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(26, 30, 46, 0.9), 
-                    stop:1 rgba(10, 14, 26, 0.7));
+                    stop:0 rgba(26, 30, 46, 0.9), stop:1 rgba(10, 14, 26, 0.7));
                 margin: 20px;
                 backdrop-filter: blur(10px);
             }}
         """)
-        
         scanner_layout = QVBoxLayout()
         scanner_text = QLabel("지문을 스캐너에 올려주세요")
         scanner_text.setAlignment(Qt.AlignCenter)
         scanner_text.setStyleSheet(f"""
             QLabel {{
-                font-size: 20px;
+                font-size: {FONT_SIZES['scanner_text']}pt;
                 color: {HYUNDAI_COLORS['text_primary']};
                 font-weight: bold;
             }}
         """)
         scanner_layout.addWidget(scanner_text)
         fingerprint_scanner.setLayout(scanner_layout)
-        
-        # 확인 버튼
-        confirm_btn = AnimatedButton("인증 완료")
-        confirm_btn.clicked.connect(self.launch_parking_ui)
-        
-        layout.addStretch(1)
-        layout.addWidget(fingerprint_label)
-        layout.addWidget(message)
-        layout.addWidget(fingerprint_info)
-        layout.addWidget(fingerprint_scanner)
-        layout.addWidget(confirm_btn)
-        layout.addStretch(1)
-        
+
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(20)
+        success_btn = AnimatedButton("인증 성공")
+        success_btn.clicked.connect(self.authentication_success)
+        fallback_btn = AnimatedButton("일반 구역으로")
+        fallback_btn.clicked.connect(self.authentication_timeout)
+        button_layout.addWidget(success_btn)
+        button_layout.addWidget(fallback_btn)
+
+        self.content_layout.addStretch(1)
+        self.content_layout.addWidget(fingerprint_label)
+        self.content_layout.addWidget(message)
+        self.content_layout.addWidget(fingerprint_info)
+        self.content_layout.addWidget(self.timer_label)
+        self.content_layout.addWidget(fingerprint_scanner)
+        self.content_layout.addLayout(button_layout)
+        self.content_layout.addStretch(1)
+
+    def start_authentication(self):
+        self.remaining_time = 5
+        self.authentication_timer = QTimer(self)
+        self.authentication_timer.timeout.connect(self.update_timer)
+        self.authentication_timer.start(1000)
+
+    def update_timer(self):
+        self.remaining_time -= 1
+        if self.remaining_time > 0:
+            self.timer_label.setText(f"{self.remaining_time}초 후 일반 구역으로 자동 배정됩니다")
+        else:
+            self.authentication_timer.stop()
+            self.authentication_timeout()
+
+    def authentication_success(self):
+        if self.authentication_timer:
+            self.authentication_timer.stop()
+        self.launch_parking_ui()
+
+    def authentication_timeout(self):
+        if self.authentication_timer:
+            self.authentication_timer.stop()
+        self.launch_parking_ui()
+
     def launch_parking_ui(self):
-        """parking_ui_testing_2.py 실행 후 현재 창 종료"""
         try:
-            # parking_ui_testing_2.py 실행
             subprocess.Popen([sys.executable, 'parking_ui_testing_darkblue.py'])
-            # 현재 애플리케이션 종료
             QApplication.quit()
         except FileNotFoundError:
             print("parking_ui_testing_darkblue.py 파일을 찾을 수 없습니다.")
-            # 파일이 없으면 기본 동작 (홈으로 돌아가기)
             self.go_back_to_home()
         except Exception as e:
             print(f"parking_ui_testing_darkblue.py 실행 중 오류 발생: {e}")
             self.go_back_to_home()
-        
+
     def go_back_to_home(self):
-        """홈으로 돌아가기"""
         if hasattr(self.parent_window, 'show_home'):
             self.parent_window.show_home()
 
-# --- 4. 메인 윈도우 ---
+class ElectricVehicleOptions(BaseScreen):
+    """전기차 옵션 선택 화면"""
+    def __init__(self, is_handicapped, parent=None):
+        super().__init__(parent)
+        self.is_handicapped = is_handicapped
+        self.battery_level = random.randint(20, 95)
+        self.initUI()
 
+    def initUI(self):
+        battery_label = QLabel("🔋")
+        battery_label.setAlignment(Qt.AlignCenter)
+        battery_label.setStyleSheet("font-size: 80pt; margin-bottom: 20px;")
+
+        message = QLabel(f"현재 배터리 용량: {self.battery_level}%")
+        message.setAlignment(Qt.AlignCenter)
+        message.setStyleSheet(f"""
+            QLabel {{
+                font-size: {FONT_SIZES['scenario_title']}pt;
+                color: {HYUNDAI_COLORS['text_primary']};
+                font-weight: bold;
+            }}
+        """)
+
+        option_info_text = "원하시는 주차구역을 선택해주세요" if self.is_handicapped else "충전이 필요하신가요?"
+        option_info = QLabel(option_info_text)
+        option_info.setAlignment(Qt.AlignCenter)
+        option_info.setStyleSheet(f"""
+            QLabel {{
+                font-size: {FONT_SIZES['scenario_subtitle']}pt;
+                color: {HYUNDAI_COLORS['text_secondary']};
+            }}
+        """)
+
+        battery_bar = QProgressBar()
+        battery_bar.setRange(0, 100)
+        battery_bar.setValue(self.battery_level)
+        battery_bar.setTextVisible(False)
+        battery_bar.setMinimumHeight(30)
+        battery_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {HYUNDAI_COLORS['surface']};
+                border-radius: 15px;
+                background: rgba(26, 30, 46, 0.8);
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #00C851, stop:1 #69F0AE);
+                border-radius: 14px;
+            }}
+        """)
+
+        button_layout = QVBoxLayout()
+        button_layout.setSpacing(20)
+        charging_btn = AnimatedButton("⚡ 전기차 충전구역")
+        charging_btn.clicked.connect(self.select_charging)
+        button_layout.addWidget(charging_btn)
+
+        if self.is_handicapped:
+            handicapped_btn = AnimatedButton("♿ 장애인 전용 주차구역")
+            handicapped_btn.clicked.connect(self.select_handicapped_parking)
+            button_layout.addWidget(handicapped_btn)
+        else:
+            normal_btn = AnimatedButton("🅿️ 일반 주차구역")
+            normal_btn.clicked.connect(self.select_normal_parking)
+            button_layout.addWidget(normal_btn)
+
+        self.content_layout.addStretch(1)
+        self.content_layout.addWidget(battery_label)
+        self.content_layout.addWidget(message)
+        self.content_layout.addWidget(option_info)
+        self.content_layout.addWidget(battery_bar)
+        self.content_layout.addSpacing(20)
+        self.content_layout.addLayout(button_layout)
+        self.content_layout.addStretch(1)
+
+    def select_charging(self):
+        self.launch_parking_ui()
+
+    def select_handicapped_parking(self):
+        if hasattr(self.parent_window, 'show_fingerprint_auth'):
+            self.parent_window.show_fingerprint_auth('electric', 'normal')
+
+    def select_normal_parking(self):
+        self.launch_parking_ui()
+
+    def launch_parking_ui(self):
+        try:
+            subprocess.Popen([sys.executable, 'parking_ui_testing_darkblue.py'])
+            QApplication.quit()
+        except FileNotFoundError:
+            print("parking_ui_testing_darkblue.py 파일을 찾을 수 없습니다.")
+            self.go_back_to_home()
+        except Exception as e:
+            print(f"parking_ui_testing_darkblue.py 실행 중 오류 발생: {e}")
+            self.go_back_to_home()
+
+    def go_back_to_home(self):
+        if hasattr(self.parent_window, 'show_home'):
+            self.parent_window.show_home()
+
+class RegularVehicleResult(BaseScreen):
+    """일반 차량 결과 화면"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.initUI()
+
+    def initUI(self):
+        success_label = QLabel("✅")
+        success_label.setAlignment(Qt.AlignCenter)
+        success_label.setStyleSheet("font-size: 80pt; margin-bottom: 20px;")
+
+        message = QLabel("일반 주차구역 배정 완료")
+        message.setAlignment(Qt.AlignCenter)
+        message.setStyleSheet(f"""
+            QLabel {{
+                font-size: {FONT_SIZES['scenario_title']}pt;
+                color: {HYUNDAI_COLORS['text_primary']};
+                font-weight: bold;
+            }}
+        """)
+
+        info = QLabel("주차장 입구가 곧 열립니다")
+        info.setAlignment(Qt.AlignCenter)
+        info.setStyleSheet(f"""
+            QLabel {{
+                font-size: {FONT_SIZES['scenario_subtitle']}pt;
+                color: {HYUNDAI_COLORS['text_secondary']};
+            }}
+        """)
+
+        confirm_btn = AnimatedButton("확인")
+        confirm_btn.clicked.connect(self.launch_parking_ui)
+
+        self.content_layout.addStretch(1)
+        self.content_layout.addWidget(success_label)
+        self.content_layout.addWidget(message)
+        self.content_layout.addWidget(info)
+        self.content_layout.addSpacing(30)
+        self.content_layout.addWidget(confirm_btn)
+        self.content_layout.addStretch(1)
+
+    def launch_parking_ui(self):
+        try:
+            subprocess.Popen([sys.executable, 'parking_ui_testing_darkblue.py'])
+            QApplication.quit()
+        except FileNotFoundError:
+            print("parking_ui_testing_darkblue.py 파일을 찾을 수 없습니다.")
+            self.go_back_to_home()
+        except Exception as e:
+            print(f"parking_ui_testing_darkblue.py 실행 중 오류 발생: {e}")
+            self.go_back_to_home()
+
+    def go_back_to_home(self):
+        if hasattr(self.parent_window, 'show_home'):
+            self.parent_window.show_home()
+
+# --- 5. 메인 윈도우 ---
 class HyundaiStyleUI(QWidget):
     """현대차 스타일의 메인 UI"""
     def __init__(self):
         super().__init__()
         self.initUI()
-        
+
     def initUI(self):
         self.setWindowTitle('HYUNDAI SmartParking System')
-        self.setGeometry(150, 150, 1000, 700)
-        self.setFixedSize(1000, 700)  # 고정 크기
-        
-        # 메인 레이아웃
+        # 고정 크기 대신 초기 크기와 최소 크기 설정
+        self.resize(1280, 800)
+        self.setMinimumSize(1000, 700)
+
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        
-        # 상단 상태 바
+
         self.status_bar = StatusBar()
+        # 상태바의 고정 높이를 제거하여 내용에 맞게 자동 조절되도록 수정
         main_layout.addWidget(self.status_bar)
-        
-        # 스택 위젯으로 화면 전환 관리
+
         self.stacked_widget = QStackedWidget()
-        
-        # 홈 화면 (차량 타입 선택)
         self.home_screen = VehicleTypeSelector(self)
         self.stacked_widget.addWidget(self.home_screen)
-        
         main_layout.addWidget(self.stacked_widget)
-        
+
         self.setLayout(main_layout)
+        self.setStyleSheet(f"background-color: {HYUNDAI_COLORS['background']};")
+        self.showMaximized()
+
+    def show_accessibility_selector(self, vehicle_type):
+        accessibility_screen = AccessibilitySelector(vehicle_type, self)
+        self.switch_screen(accessibility_screen)
+
+    def show_scenario(self, vehicle_type, is_handicapped):
+        if vehicle_type == 'regular':
+            if is_handicapped:
+                # 시나리오 1: 일반차량/장애O - 지문인식
+                self.show_fingerprint_auth('regular', 'normal')
+            else:
+                # 시나리오 2: 일반차량/장애X - 바로 일반구역
+                self.show_regular_result()
+        elif vehicle_type == 'electric':
+            # 시나리오 3 & 4: 전기차 - 옵션 선택
+            self.show_electric_options(is_handicapped)
+
+    def show_fingerprint_auth(self, vehicle_type, fallback_scenario):
+        fingerprint_screen = FingerprintAuthentication(vehicle_type, fallback_scenario, self)
+        self.switch_screen(fingerprint_screen)
+
+    def show_electric_options(self, is_handicapped):
+        electric_screen = ElectricVehicleOptions(is_handicapped, self)
+        self.switch_screen(electric_screen)
+
+    def show_regular_result(self):
+        result_screen = RegularVehicleResult(self)
+        self.switch_screen(result_screen)
+
+    def switch_screen(self, new_screen):
+        """새로운 화면으로 전환하는 헬퍼 함수"""
+        # 이전 화면을 제거하여 메모리 누수를 방지
+        if self.stacked_widget.count() > 1:
+            old_widget = self.stacked_widget.widget(1)
+            self.stacked_widget.removeWidget(old_widget)
+            old_widget.deleteLater()
         
-        # 전체 윈도우 스타일
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {HYUNDAI_COLORS['background']};
-            }}
-        """)
-        
-        self.show()
-        
-    def show_main_process(self, vehicle_type):
-        """메인 프로세스 시작"""
-        processing_screen = ProcessingScreen(vehicle_type, self)
-        self.stacked_widget.addWidget(processing_screen)
-        self.stacked_widget.setCurrentWidget(processing_screen)
-        
-    def show_result_screen(self, vehicle_type):
-        """결과 화면 표시"""
-        result_screen = ResultScreen(vehicle_type, self)
-        self.stacked_widget.addWidget(result_screen)
-        self.stacked_widget.setCurrentWidget(result_screen)
-        
+        self.stacked_widget.addWidget(new_screen)
+        self.stacked_widget.setCurrentWidget(new_screen)
+
     def show_home(self):
         """홈 화면으로 돌아가기"""
-        # 기존 화면들 제거 (메모리 절약)
-        while self.stacked_widget.count() > 1:
-            widget = self.stacked_widget.widget(1)
-            self.stacked_widget.removeWidget(widget)
-            widget.deleteLater()
-            
-        self.stacked_widget.setCurrentWidget(self.home_screen)
+        # 현재 화면을 제거하고 홈으로 전환
+        if self.stacked_widget.currentIndex() != 0:
+            current_widget = self.stacked_widget.currentWidget()
+            self.stacked_widget.removeWidget(current_widget)
+            current_widget.deleteLater()
+        self.stacked_widget.setCurrentIndex(0)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    
-    # 애플리케이션 전체 폰트 설정
-    font = QFont("Malgun Gothic", 12)  # 한국어 지원 폰트
+
+    # --- 고해상도(HiDPI) 디스플레이 지원 설정 ---
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
+    # 애플리케이션 전체 폰트 설정 (한국어 지원 폰트)
+    font = QFont("Malgun Gothic")
+    font.setPointSize(11) # 기본 포인트 크기 설정
     app.setFont(font)
-    
+
     # 다크 테마 설정
     app.setStyle('Fusion')
-    
+
     ex = HyundaiStyleUI()
     sys.exit(app.exec_())
