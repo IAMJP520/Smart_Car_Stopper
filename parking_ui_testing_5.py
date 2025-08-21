@@ -644,7 +644,7 @@ class ParkingLotUI(QWidget):
         """)
         controls_layout = QVBoxLayout(controls_frame)
         
-        dest_info = QLabel("🎯 설정된 목적지:")
+        dest_info = QLabel("목적지:")
         dest_info.setStyleSheet(f"color: {HYUNDAI_COLORS['accent']}; font-size: {FONT_SIZES['controls_title']}pt;")
         main_dest = QLabel(f"주 목적지: {DESTINATIONS['main']}")
         main_dest.setStyleSheet(f"color: {HYUNDAI_COLORS['text_primary']}; font-size: {FONT_SIZES['controls_info']}pt;")
@@ -655,7 +655,7 @@ class ParkingLotUI(QWidget):
         waypoint2_dest = QLabel(waypoint2_text)
         waypoint2_dest.setStyleSheet(f"color: {HYUNDAI_COLORS['text_secondary']}; font-size: {FONT_SIZES['controls_info']-2}pt;")
         
-        self.btn_start = QPushButton("🧭 네비게이션 시작")
+        self.btn_start = QPushButton("네비게이션 시작")
         self.btn_start.clicked.connect(self.start_navigation)
         
         controls_layout.addWidget(dest_info)
@@ -781,7 +781,7 @@ class ParkingLotUI(QWidget):
         for i in range(6): self.add_block(400 + i * 200, 400, 200, 400, c_gen, "일반")
         for i in range(4): self.add_block(1600, 800 + i * 200, 400, 200, c_gen, "일반")
         self.add_hatched(400, 0, 1600, 400)
-        self.add_dot_label_static(self.ENTRANCE, "🚗 입구", QColor(0, 170, 210))
+        self.add_dot_label_static(self.ENTRANCE, "입구", QColor(0, 170, 210))
 
     def build_occupancy(self):
         W, H, C = self.SCENE_W, self.SCENE_H, self.CELL
@@ -867,25 +867,33 @@ class ParkingLotUI(QWidget):
         if len(cells) > 1 and cells[-1] != simp[-1]: simp.append(cells[-1])
         return simp
 
-    def draw_smooth_path(self, pts):
+    def draw_straight_path(self, pts):
+        """웨이포인트 간 직선으로 경로를 그립니다."""
         if len(pts) < 2: return
-        path = QPainterPath(); path.moveTo(pts[0])
-        if len(pts) == 2: path.lineTo(pts[1])
-        else:
-            path.lineTo((pts[0] + pts[1]) / 2)
-            for i in range(1, len(pts) - 1):
-                p0, p1, p2 = pts[i - 1], pts[i], pts[i + 1]
-                path.quadTo(p1, (p1 + p2) / 2)
-            path.lineTo(pts[-1])
         
-        glow_pen = QPen(QColor(0, 170, 210, 60), self.PATH_WIDTH + 12, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        self.scene.addPath(path, glow_pen).setParentItem(self.layer_path)
-        mid_glow_pen = QPen(QColor(0, 200, 255, 100), self.PATH_WIDTH + 6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        self.scene.addPath(path, mid_glow_pen).setParentItem(self.layer_path)
-        gradient_pen = QPen(QColor(0, 200, 255), self.PATH_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        self.scene.addPath(path, gradient_pen).setParentItem(self.layer_path)
-        center_pen = QPen(QColor(255, 255, 255, 150), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        self.scene.addPath(path, center_pen).setParentItem(self.layer_path)
+        # 글로우 효과를 위한 외곽선
+        for i in range(len(pts) - 1):
+            start, end = pts[i], pts[i + 1]
+            
+            # 가장 큰 글로우
+            glow_pen = QPen(QColor(0, 170, 210, 60), self.PATH_WIDTH + 12, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            glow_line = self.scene.addLine(start.x(), start.y(), end.x(), end.y(), glow_pen)
+            glow_line.setParentItem(self.layer_path)
+            
+            # 중간 글로우
+            mid_glow_pen = QPen(QColor(0, 200, 255, 100), self.PATH_WIDTH + 6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            mid_glow_line = self.scene.addLine(start.x(), start.y(), end.x(), end.y(), mid_glow_pen)
+            mid_glow_line.setParentItem(self.layer_path)
+            
+            # 메인 경로선
+            main_pen = QPen(QColor(0, 200, 255), self.PATH_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            main_line = self.scene.addLine(start.x(), start.y(), end.x(), end.y(), main_pen)
+            main_line.setParentItem(self.layer_path)
+            
+            # 중앙 가이드선
+            center_pen = QPen(QColor(255, 255, 255, 150), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            center_line = self.scene.addLine(start.x(), start.y(), end.x(), end.y(), center_pen)
+            center_line.setParentItem(self.layer_path)
 
     def generate_hud_instructions(self, pts):
         if len(pts) < 2: return []
@@ -943,14 +951,12 @@ class ParkingLotUI(QWidget):
         if not self.full_path_points: return
         self.full_path_points[0], self.full_path_points[-1] = self.ENTRANCE, self.snapped_waypoints[-1]
         self.clear_path_layer()
-        self.draw_smooth_path(self.full_path_points)
-        
-        # 지도 상에 웨이포인트 표시하는 코드 제거
+        self.draw_straight_path(self.full_path_points)
         
         self.current_path_segment_index = 0
         self.car.setPos(self.ENTRANCE); self.car.show()
         self.update_hud_from_car_position(self.ENTRANCE)
-        self.btn_start.setText("🔄 경로 재설정")
+        self.btn_start.setText("경로 재설정")
 
     def _update_current_segment(self, car_pos):
         """차량의 위치를 기반으로 현재 주행 중인 경로의 구간을 업데이트합니다. (로직 개선)"""

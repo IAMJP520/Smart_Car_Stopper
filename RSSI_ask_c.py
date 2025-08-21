@@ -16,7 +16,7 @@ from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtPrope
 HYUNDAI_COLORS = {
     'primary': '#002C5F',      # 현대차 딥 블루
     'secondary': '#007FA3',    # 현대차 라이트 블루
-    'accent': '#00AAD2',       # 현대차 시안
+    'accent': '#00AAD2',      # 현대차 시안
     'success': '#00C851',      # 그린
     'warning': '#FFB300',      # 앰버
     'background': '#0A0E1A',   # 다크 배경
@@ -93,7 +93,7 @@ class StatusBar(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(30, 15, 30, 15)
         location_layout = QHBoxLayout()
-        location_icon = QLabel("�")
+        location_icon = QLabel("📍")
         location_icon.setStyleSheet(f"font-size: {FONT_SIZES['status_bar_location']}pt; color: white;")
         self.location_label = QLabel("Seocho-gu, Seoul")
         self.location_label.setStyleSheet(f"color: {HYUNDAI_COLORS['text_primary']}; font-size: {FONT_SIZES['status_bar_location']}pt; font-weight: bold;")
@@ -155,6 +155,11 @@ class AnimatedButton(QPushButton):
                 border-radius: 25px; font-size: {FONT_SIZES['button']}pt;
                 font-weight: bold; padding: 15px 30px; backdrop-filter: blur(10px);
             }}
+            QPushButton:disabled {{
+                background: rgba(40, 50, 70, 0.8);
+                color: rgba(255, 255, 255, 0.4);
+                border: 2px solid rgba(0, 170, 210, 0.2);
+            }}
         """
         self.hover_style = f"""
             QPushButton {{
@@ -168,7 +173,8 @@ class AnimatedButton(QPushButton):
         self.setStyleSheet(self.default_style)
 
     def enterEvent(self, event):
-        self.setStyleSheet(self.hover_style)
+        if self.isEnabled():
+            self.setStyleSheet(self.hover_style)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
@@ -421,26 +427,53 @@ class ElectricVehicleOptions(BaseScreen):
     def __init__(self, is_handicapped, parent=None):
         super().__init__(parent)
         self.is_handicapped = is_handicapped
-        self.battery_level = random.randint(20, 95)
         self.initUI()
 
     def initUI(self):
-        battery_label = QLabel("🔋"); battery_label.setAlignment(Qt.AlignCenter); battery_label.setStyleSheet("font-size: 80pt; margin-bottom: 20px;")
-        message = QLabel(f"현재 배터리 용량: {self.battery_level}%"); message.setAlignment(Qt.AlignCenter); message.setStyleSheet(f"font-size: {FONT_SIZES['scenario_title']}pt; color: {HYUNDAI_COLORS['text_primary']}; font-weight: bold;")
-        option_info_text = "원하시는 주차구역을 선택해주세요" if self.is_handicapped else "충전이 필요하신가요?"
-        option_info = QLabel(option_info_text); option_info.setAlignment(Qt.AlignCenter); option_info.setStyleSheet(f"font-size: {FONT_SIZES['scenario_subtitle']}pt; color: {HYUNDAI_COLORS['text_secondary']};")
-        battery_bar = QProgressBar(); battery_bar.setRange(0, 100); battery_bar.setValue(self.battery_level); battery_bar.setTextVisible(False); battery_bar.setMinimumHeight(30); battery_bar.setStyleSheet(f"QProgressBar {{ border: 1px solid {HYUNDAI_COLORS['surface']}; border-radius: 15px; background: rgba(26, 30, 46, 0.8); }} QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00C851, stop:1 #69F0AE); border-radius: 14px; }}")
-        button_layout = QVBoxLayout(); button_layout.setSpacing(20); charging_btn = AnimatedButton("⚡ 전기차 충전구역"); charging_btn.clicked.connect(self.select_charging); button_layout.addWidget(charging_btn)
+        icon_label = QLabel("🔋")
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("font-size: 80pt; margin-bottom: 20px;")
+        
+        message = QLabel("전기차 옵션 선택")
+        message.setAlignment(Qt.AlignCenter)
+        message.setStyleSheet(f"font-size: {FONT_SIZES['scenario_title']}pt; color: {HYUNDAI_COLORS['text_primary']}; font-weight: bold;")
+        
+        option_info = QLabel("원하시는 주차구역을 선택해주세요")
+        option_info.setAlignment(Qt.AlignCenter)
+        option_info.setStyleSheet(f"font-size: {FONT_SIZES['scenario_subtitle']}pt; color: {HYUNDAI_COLORS['text_secondary']};")
+        
+        button_layout = QVBoxLayout()
+        button_layout.setSpacing(20)
+
+        # 버튼 순서: 일반 -> 전기 -> 장애인 (조건부)
+        normal_btn = AnimatedButton("🅿️ 일반 주차구역")
+        normal_btn.clicked.connect(self.select_normal_parking)
+        button_layout.addWidget(normal_btn)
+
+        charging_btn = AnimatedButton("⚡ 전기차 충전구역")
+        charging_btn.clicked.connect(self.select_charging)
+        button_layout.addWidget(charging_btn)
+
         if self.is_handicapped:
-            handicapped_btn = AnimatedButton("♿ 장애인 전용 주차구역"); handicapped_btn.clicked.connect(self.select_handicapped_parking); button_layout.addWidget(handicapped_btn)
-        else:
-            normal_btn = AnimatedButton("🅿️ 일반 주차구역"); normal_btn.clicked.connect(self.select_normal_parking); button_layout.addWidget(normal_btn)
-        self.content_layout.addStretch(1); self.content_layout.addWidget(battery_label); self.content_layout.addWidget(message); self.content_layout.addWidget(option_info); self.content_layout.addWidget(battery_bar); self.content_layout.addSpacing(20); self.content_layout.addLayout(button_layout); self.content_layout.addStretch(1)
+            handicapped_btn = AnimatedButton("♿ 장애인 전용 주차구역")
+            handicapped_btn.clicked.connect(self.select_handicapped_parking)
+            button_layout.addWidget(handicapped_btn)
+
+        self.content_layout.addStretch(1)
+        self.content_layout.addWidget(icon_label)
+        self.content_layout.addWidget(message)
+        self.content_layout.addWidget(option_info)
+        self.content_layout.addSpacing(30)
+        self.content_layout.addLayout(button_layout)
+        self.content_layout.addStretch(1)
 
     def select_charging(self): self.launch_parking_ui()
+    
     def select_handicapped_parking(self):
         if hasattr(self.parent_window, 'show_fingerprint_auth'): self.parent_window.show_fingerprint_auth('electric', 'normal')
+        
     def select_normal_parking(self): self.launch_parking_ui()
+    
     def launch_parking_ui(self):
         try:
             script_name = 'parking_ui_testing_5.py'
@@ -450,6 +483,7 @@ class ElectricVehicleOptions(BaseScreen):
             print(f"{script_name} 파일을 찾을 수 없습니다."); self.go_back_to_home()
         except Exception as e:
             print(f"{script_name} 실행 중 오류 발생: {e}"); self.go_back_to_home()
+            
     def go_back_to_home(self):
         if hasattr(self.parent_window, 'show_home'): self.parent_window.show_home()
 
