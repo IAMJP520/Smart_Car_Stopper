@@ -29,7 +29,7 @@ from PyQt5.QtCore import (
 class WaypointReceiver:
     """라즈베리파이로부터 waypoint를 수신하는 클래스"""
 
-    def __init__(self, host='192.168.0.74', port=9999):
+    def __init__(self, host='0.0.0.0', port=9999):
         self.host = host
         self.port = port
         self.server_socket = None

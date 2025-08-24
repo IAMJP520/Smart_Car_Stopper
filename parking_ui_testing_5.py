@@ -520,7 +520,8 @@ class PremiumHudWidget(QFrame):
         if distance > 5:
             self.current_direction = "직진"
             self.current_distance = distance
-            self.next_direction = direction if ("좌회전" in direction or "우회전" in direction or "목적지" in direction) and distance <= 50 else ""
+            # [수정된 부분] 거리가 5m를 초과할 때는 다음 방향 안내를 표시하지 않습니다.
+            self.next_direction = ""
         else:
             self.current_direction = direction
             self.current_distance = distance
