@@ -18,7 +18,7 @@ from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtPrope
 # [수정] Wi-Fi 통신 설정 - 데이터를 수신할 기기의 IP 주소를 입력하세요.
 # ===================================================================
 WIFI_CONFIG = {
-    'target_ip': '192.168.0.167',  # ❗️ 데이터를 받을 ESP32 또는 라즈베리파이의 IP 주소
+    'target_ip': '192.168.0.166',  # ❗️ 데이터를 받을 ESP32 또는 라즈베리파이의 IP 주소
     'port': 7777              # 통신 포트
 }
 
