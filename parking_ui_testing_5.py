@@ -535,33 +535,99 @@ class PremiumHudWidget(QFrame):
 # ===================================================================
 # 자동차 아이템: 현대차 스타일
 # ===================================================================
+# ===================================================================
+# 자동차 아이템: 간단한 자동차 정면 모양 스타일
+# ===================================================================
+# ===================================================================
+# 자동차 아이템: 간단한 자동차 정면 모양 스타일 (상하반전)
+# ===================================================================
 class CarItem(QGraphicsObject):
     positionChanged = pyqtSignal(QPointF)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.car_shape = QPolygonF([QPointF(-15, -8), QPointF(15, -8), QPointF(15, 8), QPointF(10, 12), QPointF(-10, 12), QPointF(-15, 8)])
-        gradient = QLinearGradient(-15, -8, 15, 12)
-        gradient.setColorAt(0, QColor(0, 170, 210))
-        gradient.setColorAt(1, QColor(0, 44, 95))
-        self._brush = QBrush(gradient)
-        self._pen = QPen(QColor(255, 255, 255), 3)
+        # [수정] 모든 도형의 y 좌표를 반전시켜 상하반전된 모양으로 정의
+        
+        # 차량 본체 (위쪽이 넓은 사다리꼴 모양)
+        self.car_body = QPolygonF([
+            QPointF(-45, -45), QPointF(45, -45), QPointF(40, 15), QPointF(-40, 15)
+        ])
+        
+        # 차량 지붕 및 유리창 (아래쪽이 좁은 사다리꼴 모양)
+        self.car_cabin = QPolygonF([
+            QPointF(-30, 15), QPointF(30, 15), QPointF(25, 45), QPointF(-25, 45)
+        ])
+        
+        # 헤드라이트 (좌/우) - y 좌표 반전
+        self.headlight_left = QRectF(-35, -10, 15, 10)
+        self.headlight_right = QRectF(20, -10, 15, 10)
+
+        # 전면 그릴 - y 좌표 반전
+        self.grille = QRectF(-15, -15, 30, 10)
+        
         self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
         self.setZValue(100)
+        self.setRotation(0)
 
     def boundingRect(self):
-        return self.car_shape.boundingRect()
+        # 경계 사각형 계산은 동일
+        return self.car_body.boundingRect().united(self.car_cabin.boundingRect()).adjusted(-5, -5, 5, 5)
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(self._brush)
-        painter.setPen(self._pen)
-        painter.drawPolygon(self.car_shape)
-        painter.setPen(QPen(QColor(255, 255, 255), 2))
-        painter.drawLine(QPointF(0, -5), QPointF(0, 5))
-        painter.drawLine(QPointF(0, -5), QPointF(-3, -2))
-        painter.drawLine(QPointF(0, -5), QPointF(3, -2))
+
+        # 그림자 효과
+        painter.save()
+        painter.translate(4, 4)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 70)))
+        painter.setPen(Qt.NoPen)
+        painter.drawPolygon(self.car_body)
+        painter.drawPolygon(self.car_cabin)
+        painter.restore()
+
+        # [수정] 차량 본체 그라데이션 방향 반전
+        body_gradient = QLinearGradient(0, 15, 0, -45)
+        body_gradient.setColorAt(0, QColor(HYUNDAI_COLORS['accent']))
+        body_gradient.setColorAt(1, QColor(HYUNDAI_COLORS['primary']))
+        painter.setBrush(QBrush(body_gradient))
+        painter.setPen(QPen(QColor(200, 220, 255, 150), 2))
+        painter.drawPolygon(self.car_body)
+
+        # [수정] 차량 지붕 및 유리창 그라데이션 방향 반전
+        cabin_gradient = QLinearGradient(0, 45, 0, 15)
+        cabin_gradient.setColorAt(0, QColor(50, 60, 80))
+        cabin_gradient.setColorAt(1, QColor(20, 30, 50))
+        painter.setBrush(QBrush(cabin_gradient))
+        painter.setPen(QPen(QColor(150, 180, 200, 100), 1))
+        painter.drawPolygon(self.car_cabin)
+
+        # 헤드라이트 그리기 (위치만 변경됨)
+        headlight_gradient = QRadialGradient(0, 0, 15)
+        headlight_gradient.setColorAt(0, QColor(255, 255, 220))
+        headlight_gradient.setColorAt(1, QColor(200, 200, 150, 100))
+        
+        painter.save()
+        painter.translate(self.headlight_left.center())
+        painter.setBrush(QBrush(headlight_gradient))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(QRectF(-7.5, -5, 15, 10))
+        painter.restore()
+
+        painter.save()
+        painter.translate(self.headlight_right.center())
+        painter.setBrush(QBrush(headlight_gradient))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(QRectF(-7.5, -5, 15, 10))
+        painter.restore()
+
+        # 그릴 그리기 (위치만 변경됨)
+        painter.setBrush(QBrush(QColor(50, 60, 70)))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(self.grille, 3, 3)
+        painter.setPen(QPen(QColor(100, 110, 120), 1.5))
+        painter.drawLine(self.grille.left(), self.grille.center().y(), self.grille.right(), self.grille.center().y())
+
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
