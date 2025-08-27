@@ -546,38 +546,31 @@ class CarItem(QGraphicsObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # [수정] 모든 도형의 y 좌표를 반전시켜 상하반전된 모양으로 정의
-        
-        # 차량 본체 (위쪽이 넓은 사다리꼴 모양)
+        # (디자인 유지) 좌표/형상 동일
         self.car_body = QPolygonF([
             QPointF(-45, -45), QPointF(45, -45), QPointF(40, 15), QPointF(-40, 15)
         ])
-        
-        # 차량 지붕 및 유리창 (아래쪽이 좁은 사다리꼴 모양)
         self.car_cabin = QPolygonF([
             QPointF(-30, 15), QPointF(30, 15), QPointF(25, 45), QPointF(-25, 45)
         ])
-        
-        # 헤드라이트 (좌/우) - y 좌표 반전
-        self.headlight_left = QRectF(-35, -10, 15, 10)
-        self.headlight_right = QRectF(20, -10, 15, 10)
-
-        # 전면 그릴 - y 좌표 반전
+        self.headlight_left  = QRectF(-35, -10, 15, 10)
+        self.headlight_right = QRectF(20,  -10, 15, 10)
         self.grille = QRectF(-15, -15, 30, 10)
-        
+
         self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
         self.setZValue(100)
         self.setRotation(0)
 
     def boundingRect(self):
-        # 경계 사각형 계산은 동일
-        return self.car_body.boundingRect().united(self.car_cabin.boundingRect()).adjusted(-5, -5, 5, 5)
+        return self.car_body.boundingRect().united(
+            self.car_cabin.boundingRect()
+        ).adjusted(-5, -5, 5, 5)
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # 그림자 효과
+        # 그림자
         painter.save()
         painter.translate(4, 4)
         painter.setBrush(QBrush(QColor(0, 0, 0, 70)))
@@ -586,27 +579,27 @@ class CarItem(QGraphicsObject):
         painter.drawPolygon(self.car_cabin)
         painter.restore()
 
-        # [수정] 차량 본체 그라데이션 방향 반전
+        # ★ 변경: 차량 본체 레드 그라데이션 (밝은 레드 → 딥 레드)
         body_gradient = QLinearGradient(0, 15, 0, -45)
-        body_gradient.setColorAt(0, QColor(HYUNDAI_COLORS['accent']))
-        body_gradient.setColorAt(1, QColor(HYUNDAI_COLORS['primary']))
+        body_gradient.setColorAt(0, QColor(220, 30, 30))   # 밝은 레드
+        body_gradient.setColorAt(1, QColor(120, 0, 0))     # 딥 레드
         painter.setBrush(QBrush(body_gradient))
-        painter.setPen(QPen(QColor(200, 220, 255, 150), 2))
+        painter.setPen(QPen(QColor(255, 200, 200, 160), 2))  # 레드 톤 하이라이트
         painter.drawPolygon(self.car_body)
 
-        # [수정] 차량 지붕 및 유리창 그라데이션 방향 반전
+        # (디자인 유지) 유리창/캐빈은 다크 그레이 유지
         cabin_gradient = QLinearGradient(0, 45, 0, 15)
-        cabin_gradient.setColorAt(0, QColor(50, 60, 80))
-        cabin_gradient.setColorAt(1, QColor(20, 30, 50))
+        cabin_gradient.setColorAt(0, QColor(60, 60, 70))
+        cabin_gradient.setColorAt(1, QColor(25, 30, 40))
         painter.setBrush(QBrush(cabin_gradient))
-        painter.setPen(QPen(QColor(150, 180, 200, 100), 1))
+        painter.setPen(QPen(QColor(200, 200, 210, 100), 1))
         painter.drawPolygon(self.car_cabin)
 
-        # 헤드라이트 그리기 (위치만 변경됨)
+        # 헤드라이트 (그대로)
         headlight_gradient = QRadialGradient(0, 0, 15)
         headlight_gradient.setColorAt(0, QColor(255, 255, 220))
         headlight_gradient.setColorAt(1, QColor(200, 200, 150, 100))
-        
+
         painter.save()
         painter.translate(self.headlight_left.center())
         painter.setBrush(QBrush(headlight_gradient))
@@ -621,18 +614,19 @@ class CarItem(QGraphicsObject):
         painter.drawEllipse(QRectF(-7.5, -5, 15, 10))
         painter.restore()
 
-        # 그릴 그리기 (위치만 변경됨)
+        # 그릴 (그대로)
         painter.setBrush(QBrush(QColor(50, 60, 70)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(self.grille, 3, 3)
         painter.setPen(QPen(QColor(100, 110, 120), 1.5))
-        painter.drawLine(self.grille.left(), self.grille.center().y(), self.grille.right(), self.grille.center().y())
-
+        painter.drawLine(self.grille.left(), self.grille.center().y(),
+                         self.grille.right(), self.grille.center().y())
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.positionChanged.emit(value)
         return super().itemChange(change, value)
+
 
 # ===================================================================
 # 메인 UI: 현대차 스타일 주차장 지도
