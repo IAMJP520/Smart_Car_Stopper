@@ -82,7 +82,7 @@ class WaypointReceiver:
                     for chunk in data.strip().split('}{'):
                         if not chunk.startswith('{'): chunk = '{' + chunk
                         if not chunk.endswith('}'): chunk = chunk + '}'
-                       
+                        
                         message = json.loads(chunk)
                         self.process_waypoint_data(message)
                         response = {"status": "received", "timestamp": datetime.now().isoformat()}
@@ -99,7 +99,7 @@ class WaypointReceiver:
     def process_waypoint_data(self, data):
         """수신된 데이터 처리 (경로 또는 위치)"""
         msg_type = data.get('type')
-       
+        
         # 경로 할당 메시지 처리
         if msg_type == 'waypoint_assignment':
             waypoints = data.get('waypoints', [])
@@ -107,15 +107,15 @@ class WaypointReceiver:
             if self.waypoint_callback:
                 self.waypoint_callback(waypoints)
             print("=" * 50)
-           
+            
         # [수정] 실시간 위치 메시지 처리 - 송신 코드의 형식에 맞춤
         elif msg_type == 'real_time_position':
             x = data.get('x')
             y = data.get('y')
             tag_id = data.get('tag_id')
-           
+            
             print(f"📍 실시간 위치 수신 - Tag {tag_id}: ({x}, {y})")
-           
+            
             if x is not None and y is not None:
                 position = [float(x), float(y)]
                 if self.position_callback:
@@ -135,14 +135,27 @@ class WaypointReceiver:
             self.server_socket.close()
 
 # ===================================================================
-# 현대차 스타일 컬러 팔레트 및 폰트
+# 개선된 현대차 스타일 컬러 팔레트 - 더 심플하고 세련된 느낌
 # ===================================================================
 HYUNDAI_COLORS = {
-    'primary': '#002C5F', 'secondary': "#0991B6", 'accent': '#00AAD2',
-    'success': '#00C851', 'warning': '#FFB300', 'danger': '#FF4444',
-    'background': '#0A0E1A', 'surface': '#1A1E2E', 'text_primary': '#FFFFFF',
-    'text_secondary': '#B0BEC5', 'glass': 'rgba(255, 255, 255, 0.1)'
+    'primary': '#1a1a1a',        # 진한 차콜 그레이
+    'secondary': "#2d2d2d",      # 미디엄 그레이  
+    'accent': '#4a9eff',         # 부드러운 블루 (기존보다 연하고 세련됨)
+    'success': '#00d084',        # 민트 그린
+    'warning': '#ffa726',        # 소프트 오렌지
+    'danger': '#ef5350',         # 소프트 레드
+    'background': '#0f0f0f',     # 더 깊은 블랙
+    'surface': '#1e1e1e',        # 다크 서페이스
+    'text_primary': '#ffffff',   # 순백
+    'text_secondary': '#9e9e9e', # 쿨 그레이
+    'glass': 'rgba(255, 255, 255, 0.08)',  # 더 은은한 글래스 효과
+    'blue_soft': '#6bb6ff',      # 소프트 블루
+    'blue_muted': '#4285f4',     # 뮤트 블루
+    'white_soft': '#f5f5f5',     # 소프트 화이트
+    'gray_light': '#757575',     # 라이트 그레이
+    'gray_medium': '#424242'     # 미디엄 그레이
 }
+
 FONT_SIZES = {
     'hud_distance': 42, 'hud_direction': 12, 'hud_speed': 28, 'hud_speed_unit': 10,
     'hud_progress': 14, 'hud_next_label': 10, 'hud_next_direction': 14,
@@ -151,7 +164,7 @@ FONT_SIZES = {
 }
 
 # ===================================================================
-# 애니메이션 HUD 위젯: 현대차 프리미엄 스타일
+# 애니메이션 HUD 위젯: 개선된 현대차 프리미엄 스타일
 # ===================================================================
 class PremiumHudWidget(QFrame):
     def __init__(self, parent=None):
@@ -160,15 +173,13 @@ class PremiumHudWidget(QFrame):
         self.setMinimumSize(450, 700)
         self.setStyleSheet(f"""
             PremiumHudWidget {{
+                /* 더 심플한 다크 그라데이션 */
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {HYUNDAI_COLORS['background']},
-                    stop:0.3 rgba(26, 30, 46, 240),
-                    stop:0.7 rgba(10, 14, 26, 240),
+                    stop:0 {HYUNDAI_COLORS['primary']}, 
                     stop:1 {HYUNDAI_COLORS['background']});
-                border: 2px solid qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 {HYUNDAI_COLORS['accent']},
-                    stop:0.5 {HYUNDAI_COLORS['secondary']},
-                    stop:1 {HYUNDAI_COLORS['accent']});
+                
+                /* 더 은은한 테두리 */
+                border: 2px solid {HYUNDAI_COLORS['gray_medium']};
                 border-radius: 25px;
             }}
         """)
@@ -193,27 +204,27 @@ class PremiumHudWidget(QFrame):
 
     def init_particles(self):
         self.particle_positions = []
-        for _ in range(15):
+        for _ in range(8):  # 파티클 수 줄임
             self.particle_positions.append({
                 'x': random.randint(0, 450), 'y': random.randint(0, 700),
-                'speed': random.uniform(0.5, 2.0), 'size': random.randint(2, 4),
-                'opacity': random.uniform(0.1, 0.3)
+                'speed': random.uniform(0.3, 1.0), 'size': random.randint(1, 3),  # 크기와 속도 줄임
+                'opacity': random.uniform(0.05, 0.15)  # 더 은은하게
             })
 
     def update_animation(self):
-        self.rotation_angle = (self.rotation_angle + 2) % 360
+        self.rotation_angle = (self.rotation_angle + 1) % 360  # 회전 속도 줄임
         if self.pulse_growing:
-            self.pulse_scale += 0.02
-            if self.pulse_scale >= 1.2: self.pulse_growing = False
+            self.pulse_scale += 0.01  # 펄스 변화량 줄임
+            if self.pulse_scale >= 1.05: self.pulse_growing = False  # 펄스 범위 줄임
         else:
-            self.pulse_scale -= 0.02
+            self.pulse_scale -= 0.01
             if self.pulse_scale <= 1.0: self.pulse_growing = True
         if self.glow_increasing:
-            self.glow_opacity += 0.03
-            if self.glow_opacity >= 0.8: self.glow_increasing = False
+            self.glow_opacity += 0.02  # 글로우 변화량 줄임
+            if self.glow_opacity >= 0.4: self.glow_increasing = False  # 글로우 범위 줄임
         else:
-            self.glow_opacity -= 0.03
-            if self.glow_opacity <= 0.3: self.glow_increasing = True
+            self.glow_opacity -= 0.02
+            if self.glow_opacity <= 0.2: self.glow_increasing = True
         for particle in self.particle_positions:
             particle['y'] -= particle['speed']
             if particle['y'] < 0:
@@ -239,51 +250,88 @@ class PremiumHudWidget(QFrame):
 
     def draw_background_effects(self, painter, rect):
         painter.save()
+        # 더 은은한 파티클
         for particle in self.particle_positions:
-            color = QColor(0, 170, 210)
+            color = QColor(HYUNDAI_COLORS['blue_soft'])
             color.setAlphaF(particle['opacity'])
-            painter.setBrush(QBrush(color)); painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.setPen(Qt.NoPen)
             painter.drawEllipse(QPointF(particle['x'], particle['y']), particle['size'], particle['size'])
-        painter.setPen(QPen(QColor(0, 170, 210, 15), 1))
-        for x in range(0, rect.width(), 30): painter.drawLine(x, 0, x, rect.height())
-        for y in range(0, rect.height(), 30): painter.drawLine(0, y, rect.width(), y)
-        for corner_x, corner_y in [(0, 0), (rect.width(), 0), (0, rect.height()), (rect.width(), rect.height())]:
-            gradient = QRadialGradient(corner_x, corner_y, 150)
-            gradient.setColorAt(0, QColor(0, 170, 210, int(50 * self.glow_opacity)))
-            gradient.setColorAt(1, QColor(0, 170, 210, 0))
-            painter.setBrush(QBrush(gradient)); painter.setPen(Qt.NoPen)
-            painter.drawEllipse(QPointF(corner_x, corner_y), 150, 150)
+        
+        # 그리드 제거 (더 심플하게)
+        
         painter.restore()
 
     def draw_3d_direction_display(self, painter, center_x, y):
-        painter.save(); painter.translate(center_x, y); painter.rotate(self.rotation_angle)
+        painter.save()
+        painter.translate(center_x, y)
+        
+        # 회전하는 외부 링 (더 은은하게)
+        painter.rotate(self.rotation_angle)
         gradient = QRadialGradient(0, 0, 90)
-        gradient.setColorAt(0, QColor(0, 170, 210, 0)); gradient.setColorAt(0.7, QColor(0, 170, 210, 50)); gradient.setColorAt(1, QColor(0, 170, 210, 100))
-        painter.setBrush(QBrush(gradient)); painter.setPen(QPen(QColor(0, 200, 255, 150), 2)); painter.drawEllipse(QPointF(0, 0), 85, 85)
-        painter.rotate(-self.rotation_angle); painter.scale(self.pulse_scale, self.pulse_scale)
-        is_warning = self.current_distance <= 5 and ("좌회전" in self.current_direction or "우회전" in self.current_direction or "목적지" in self.current_direction)
-        gradient, glow_color = (QRadialGradient(0, 0, 70), QColor(255, 200, 50)) if is_warning else (QRadialGradient(0, 0, 70), QColor(0, 200, 255))
-        gradient.setColorAt(0, QColor(255, 180, 0, 200) if is_warning else QColor(0, 170, 210, 200))
-        gradient.setColorAt(0.5, QColor(255, 140, 0, 150) if is_warning else QColor(0, 127, 163, 150))
-        gradient.setColorAt(1, QColor(255, 100, 0, 100) if is_warning else QColor(0, 44, 95, 100))
-        painter.setPen(QPen(glow_color, 6)); painter.setBrush(QBrush(gradient)); painter.drawEllipse(QPointF(0, 0), 65, 65)
-        gradient_inner = QRadialGradient(0, 0, 45); gradient_inner.setColorAt(0, QColor(255, 255, 255, 40)); gradient_inner.setColorAt(1, QColor(255, 255, 255, 0))
-        painter.setBrush(QBrush(gradient_inner)); painter.setPen(Qt.NoPen); painter.drawEllipse(QPointF(0, 0), 45, 45)
-        painter.scale(1 / self.pulse_scale, 1 / self.pulse_scale); self.draw_3d_direction_icon(painter); painter.restore()
+        gradient.setColorAt(0, QColor(0, 0, 0, 0))
+        gradient.setColorAt(0.8, QColor(HYUNDAI_COLORS['gray_light']).darker(200))
+        gradient.setColorAt(1, QColor(HYUNDAI_COLORS['gray_medium']))
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['gray_medium']), 1))
+        painter.drawEllipse(QPointF(0, 0), 85, 85)
+        painter.rotate(-self.rotation_angle)
+        
+        # 메인 원형 배경 (더 심플하게)
+        painter.scale(self.pulse_scale, self.pulse_scale)
+        is_warning = self.current_distance <= 0 and ("좌회전" in self.current_direction or "우회전" in self.current_direction or "목적지" in self.current_direction)
+        
+        if is_warning:
+            # 경고 색상 (소프트 오렌지)
+            main_color = QColor(HYUNDAI_COLORS['warning'])
+            bg_color = main_color.darker(150)
+        else:
+            # 일반 색상 (소프트 블루)
+            main_color = QColor(HYUNDAI_COLORS['blue_soft'])
+            bg_color = main_color.darker(150)
+        
+        # 단순한 원형 배경
+        painter.setBrush(QBrush(bg_color))
+        painter.setPen(QPen(main_color.lighter(120), 3))
+        painter.drawEllipse(QPointF(0, 0), 65, 65)
+        
+        # 중앙 하이라이트 (더 은은하게)
+        inner_gradient = QRadialGradient(0, 0, 30)
+        inner_gradient.setColorAt(0, QColor(255, 255, 255, 20))
+        inner_gradient.setColorAt(1, QColor(255, 255, 255, 0))
+        painter.setBrush(QBrush(inner_gradient))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(QPointF(0, 0), 30, 30)
+        
+        painter.scale(1 / self.pulse_scale, 1 / self.pulse_scale)
+        self.draw_3d_direction_icon(painter)
+        painter.restore()
 
     def draw_3d_direction_icon(self, painter):
-        painter.save(); painter.setPen(Qt.NoPen); painter.setBrush(QBrush(QColor(0, 0, 0, 80)))
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        
+        # 그림자 효과 (더 은은하게)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 30)))
         action = None
-        if self.current_distance <= 5:
-            if "좌회전" in self.current_direction: action = self.draw_3d_left_arrow
-            elif "우회전" in self.current_direction: action = self.draw_3d_right_arrow
-            elif "목적지" in self.current_direction: action = self.draw_3d_destination_icon
+
+        if "좌회전" in self.current_direction:
+            action = self.draw_3d_left_arrow
+        elif "우회전" in self.current_direction:
+            action = self.draw_3d_right_arrow
+        elif "목적지" in self.current_direction:
+            action = self.draw_3d_destination_icon
+
         if action:
-            painter.translate(3, 3); action(painter, 0, 0, shadow=True)
-            painter.translate(-3, -3)
-            gradient = QLinearGradient(-30, -20, 30, 20); gradient.setColorAt(0, QColor(255, 255, 255)); gradient.setColorAt(1, QColor(200, 200, 200))
-            painter.setBrush(QBrush(gradient)); painter.setPen(QPen(QColor(255, 255, 255), 3)); action(painter, 0, 0)
-        else: self.draw_3d_straight_arrow(painter, 0, 0)
+            painter.translate(2, 2)  # 그림자 오프셋 줄임
+            action(painter, 0, 0, shadow=True)
+            painter.translate(-2, -2)
+            # 더 심플한 아이콘 색상
+            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['white_soft'])))
+            painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 2))
+            action(painter, 0, 0)
+        else:
+            self.draw_3d_straight_arrow(painter, 0, 0)
         painter.restore()
 
     def draw_3d_left_arrow(self, painter, x, y, shadow=False):
@@ -295,133 +343,270 @@ class PremiumHudWidget(QFrame):
         else: painter.drawPolygon(QPolygonF([QPointF(x+35,y),QPointF(x+15,y-20),QPointF(x+15,y-10),QPointF(x-20,y-10),QPointF(x-20,y+10),QPointF(x+15,y+10),QPointF(x+15,y+20)]))
 
     def draw_3d_straight_arrow(self, painter, x, y):
-        painter.setPen(Qt.NoPen); painter.setBrush(QBrush(QColor(0,0,0,80)))
-        painter.drawPolygon(QPolygonF([QPointF(x+3,y-32),QPointF(x-15,y-7),QPointF(x-7,y-7),QPointF(x-7,y+28),QPointF(x+13,y+28),QPointF(x+13,y-7),QPointF(x+21,y-7)]))
-        gradient = QLinearGradient(x-20,y-35,x+20,y+25); gradient.setColorAt(0,QColor(255,255,255)); gradient.setColorAt(0.5,QColor(240,240,240)); gradient.setColorAt(1,QColor(200,200,200))
-        painter.setBrush(QBrush(gradient)); painter.setPen(QPen(QColor(255,255,255),2))
+        # 그림자
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(0,0,0,30)))
+        painter.drawPolygon(QPolygonF([QPointF(x+2,y-32),QPointF(x-15,y-7),QPointF(x-7,y-7),QPointF(x-7,y+28),QPointF(x+13,y+28),QPointF(x+13,y-7),QPointF(x+21,y-7)]))
+        
+        # 메인 화살표 (더 심플한 색상)
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['white_soft'])))
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 2))
         painter.drawPolygon(QPolygonF([QPointF(x,y-35),QPointF(x-18,y-10),QPointF(x-10,y-10),QPointF(x-10,y+25),QPointF(x+10,y+25),QPointF(x+10,y-10),QPointF(x+18,y-10)]))
 
     def draw_3d_destination_icon(self, painter, x, y, shadow=False):
-        if shadow: painter.drawEllipse(QPointF(x, y), 25, 25)
+        if shadow:
+            painter.drawEllipse(QPointF(x, y), 25, 25)
         else:
-            gradient = QRadialGradient(x, y, 25); gradient.setColorAt(0, QColor(255, 100, 100)); gradient.setColorAt(1, QColor(200, 50, 50))
-            painter.setBrush(QBrush(gradient)); painter.setPen(QPen(QColor(255, 255, 255), 3)); painter.drawEllipse(QPointF(x, y), 25, 25)
-            painter.setBrush(QBrush(QColor(255, 255, 255))); painter.setPen(Qt.NoPen); painter.drawEllipse(QPointF(x, y), 10, 10)
-            painter.setPen(QPen(QColor(50, 200, 50), 4, Qt.SolidLine, Qt.RoundCap)); painter.drawLine(x-8,y,x-3,y+5); painter.drawLine(x-3,y+5,x+8,y-6)
+            # 더 세련된 목적지 아이콘
+            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['danger'])))
+            painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 2))
+            painter.drawEllipse(QPointF(x, y), 25, 25)
+            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['white_soft'])))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(QPointF(x, y), 8, 8)
 
     def draw_distance_panel(self, painter, center_x, y):
         painter.save()
         panel_rect = QRectF(center_x - 150, y - 50, 300, 100)
-        gradient = QLinearGradient(panel_rect.topLeft(), panel_rect.bottomRight()); gradient.setColorAt(0, QColor(26, 30, 46, 200)); gradient.setColorAt(0.5, QColor(20, 24, 36, 180)); gradient.setColorAt(1, QColor(10, 14, 26, 160)); painter.setBrush(QBrush(gradient))
-        pen_gradient = QLinearGradient(panel_rect.topLeft(), panel_rect.bottomRight()); pen_gradient.setColorAt(0, QColor(0, 170, 210, 150)); pen_gradient.setColorAt(0.5, QColor(0, 200, 255, 200)); pen_gradient.setColorAt(1, QColor(0, 170, 210, 150)); painter.setPen(QPen(QBrush(pen_gradient), 2)); painter.drawRoundedRect(panel_rect, 20, 20)
+        
+        # 더 심플한 패널 배경
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['surface'])))
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['gray_medium']), 1))
+        painter.drawRoundedRect(panel_rect, 20, 20)
+        
+        # 거리 텍스트
         distance_text = f"{self.current_distance:.0f}m" if self.current_distance < 1000 else f"{self.current_distance/1000:.1f}km"
-        font = QFont("Segoe UI", FONT_SIZES['hud_distance'], QFont.Bold); painter.setFont(font)
-        text_color = QColor(255,180,0) if self.current_distance<=5 else (QColor(0,255,150) if self.current_distance<=20 else QColor(0,200,255))
-        painter.setPen(QPen(text_color)); painter.drawText(QRectF(center_x-150, y-30, 300, 60), Qt.AlignCenter, distance_text)
-        font = QFont("Malgun Gothic", FONT_SIZES['hud_direction']); painter.setFont(font); painter.setPen(QPen(QColor(180,190,200)))
+        font = QFont("Segoe UI", FONT_SIZES['hud_distance'], QFont.Bold)
+        painter.setFont(font)
+        
+        # 더 세련된 색상 선택
+        if self.current_distance <= 5:
+            text_color = QColor(HYUNDAI_COLORS['warning'])
+        elif self.current_distance <= 20:
+            text_color = QColor(HYUNDAI_COLORS['success'])
+        else:
+            text_color = QColor(HYUNDAI_COLORS['blue_soft'])
+            
+        painter.setPen(QPen(text_color))
+        painter.drawText(QRectF(center_x-150, y-30, 300, 60), Qt.AlignCenter, distance_text)
+        
+        # 방향 텍스트
+        font = QFont("Malgun Gothic", FONT_SIZES['hud_direction'])
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['text_secondary'])))
         direction_text = self.current_direction[:20] + "..." if len(self.current_direction)>20 else self.current_direction
-        painter.drawText(QRectF(center_x-150, y+10, 300, 40), Qt.AlignCenter, direction_text); painter.restore()
+        painter.drawText(QRectF(center_x-150, y+10, 300, 40), Qt.AlignCenter, direction_text)
+        painter.restore()
 
     def draw_speed_gauge(self, painter, center_x, y):
         painter.save()
         gauge_rect = QRectF(center_x - 80, y - 40, 160, 80)
-        painter.setPen(QPen(QColor(0, 44, 95, 100), 8)); painter.setBrush(Qt.NoBrush); painter.drawArc(gauge_rect, 0, 180 * 16)
+        
+        # 배경 아크 (더 은은하게)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['gray_medium']), 6))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawArc(gauge_rect, 0, 180 * 16)
+        
+        # 진행 아크 (더 심플한 색상)
         speed_angle = min(180, (self.speed / 100) * 180)
-        gradient = QLinearGradient(gauge_rect.topLeft(), gauge_rect.topRight()); gradient.setColorAt(0, QColor(0, 200, 255)); gradient.setColorAt(0.5, QColor(0, 170, 210)); gradient.setColorAt(1, QColor(0, 127, 163))
-        painter.setPen(QPen(QBrush(gradient), 6)); painter.drawArc(gauge_rect, 0, int(speed_angle * 16))
-        font = QFont("Segoe UI", FONT_SIZES['hud_speed'], QFont.Bold); painter.setFont(font); painter.setPen(QPen(QColor(255, 255, 255))); painter.drawText(QRectF(center_x-80, y-20, 160, 40), Qt.AlignCenter, f"{self.speed}")
-        font = QFont("Malgun Gothic", FONT_SIZES['hud_speed_unit']); painter.setFont(font); painter.setPen(QPen(QColor(180,190,200))); painter.drawText(QRectF(center_x-80, y+10, 160, 20), Qt.AlignCenter, "km/h"); painter.restore()
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 6))
+        painter.drawArc(gauge_rect, 0, int(speed_angle * 16))
+        
+        # 속도 텍스트
+        font = QFont("Segoe UI", FONT_SIZES['hud_speed'], QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['text_primary'])))
+        painter.drawText(QRectF(center_x-80, y-20, 160, 40), Qt.AlignCenter, f"{self.speed}")
+        
+        # 단위 텍스트
+        font = QFont("Malgun Gothic", FONT_SIZES['hud_speed_unit'])
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['text_secondary'])))
+        painter.drawText(QRectF(center_x-80, y+10, 160, 20), Qt.AlignCenter, "km/h")
+        painter.restore()
 
     def draw_progress_bar(self, painter, center_x, y):
         painter.save()
         bar_width, bar_height = 350, 12
         bar_rect = QRectF(center_x - bar_width / 2, y - bar_height / 2, bar_width, bar_height)
-        painter.setBrush(QBrush(QColor(0, 44, 95, 100))); painter.setPen(QPen(QColor(0, 170, 210, 50), 1)); painter.drawRoundedRect(bar_rect, 6, 6)
+        
+        # 배경 바 (더 심플하게)
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['gray_medium'])))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(bar_rect, 6, 6)
+        
+        # 진행 바
         if self.progress > 0:
             progress_rect = QRectF(bar_rect.x(), bar_rect.y(), (self.progress / 100) * bar_width, bar_height)
-            gradient = QLinearGradient(progress_rect.topLeft(), progress_rect.topRight()); gradient.setColorAt(0, QColor(0, 200, 255)); gradient.setColorAt(0.5, QColor(0, 170, 210)); gradient.setColorAt(1, QColor(0, 255, 200))
-            painter.setBrush(QBrush(gradient)); painter.setPen(Qt.NoPen); painter.drawRoundedRect(progress_rect, 6, 6)
-        font = QFont("Segoe UI", FONT_SIZES['hud_progress'], QFont.Bold); painter.setFont(font); painter.setPen(QPen(QColor(255,255,255))); painter.drawText(QRectF(center_x-175, y+10, 350, 30), Qt.AlignCenter, f"{self.progress:.0f}%"); painter.restore()
+            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['blue_soft'])))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(progress_rect, 6, 6)
+        
+        # 진행률 텍스트
+        font = QFont("Segoe UI", FONT_SIZES['hud_progress'], QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['text_primary'])))
+        painter.drawText(QRectF(center_x-175, y+10, 350, 30), Qt.AlignCenter, f"{self.progress:.0f}%")
+        painter.restore()
 
     def draw_next_instruction_card(self, painter, center_x, y):
         if not self.next_direction: return
-        painter.save(); card_rect = QRectF(center_x-200, y-40, 400, 80)
-        gradient = QLinearGradient(card_rect.topLeft(), card_rect.bottomRight()); gradient.setColorAt(0, QColor(26,30,46,180)); gradient.setColorAt(1, QColor(10,14,26,140))
-        painter.setBrush(QBrush(gradient)); painter.setPen(QPen(QColor(0,170,210,100), 2)); painter.drawRoundedRect(card_rect, 20, 20)
-        font = QFont("Malgun Gothic", FONT_SIZES['hud_next_label'], QFont.Bold); painter.setFont(font); painter.setPen(QPen(QColor(0,200,255))); painter.drawText(QPointF(center_x-190, y-15), "다음")
+        painter.save()
+        card_rect = QRectF(center_x-200, y-40, 400, 80)
+        
+        # 카드 배경 (더 심플하게)
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['surface'])))
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['gray_medium']), 1))
+        painter.drawRoundedRect(card_rect, 20, 20)
+        
+        # "다음" 라벨
+        font = QFont("Malgun Gothic", FONT_SIZES['hud_next_label'], QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft'])))
+        painter.drawText(QPointF(center_x-190, y-15), "다음")
+        
+        # 아이콘 배경
         icon_x, icon_y = center_x - 140, y + 10
-        gradient_icon = QRadialGradient(icon_x, icon_y, 25); gradient_icon.setColorAt(0, QColor(0,170,210,150)); gradient_icon.setColorAt(1, QColor(0,44,95,100))
-        painter.setBrush(QBrush(gradient_icon)); painter.setPen(QPen(QColor(0,200,255), 2)); painter.drawEllipse(QPointF(icon_x, icon_y), 25, 25)
-        painter.setPen(QPen(QColor(255,255,255), 3)); painter.setBrush(QBrush(QColor(255,255,255)))
-        if "좌회전" in self.next_direction: self.draw_mini_left_arrow(painter, icon_x, icon_y)
-        elif "우회전" in self.next_direction: self.draw_mini_right_arrow(painter, icon_x, icon_y)
-        elif "목적지" in self.next_direction or "도착" in self.next_direction: self.draw_mini_destination(painter, icon_x, icon_y)
-        else: self.draw_mini_straight(painter, icon_x, icon_y)
-        font.setPointSize(FONT_SIZES['hud_next_direction']); painter.setFont(font); painter.setPen(QPen(QColor(220,230,240)))
-        painter.drawText(QRectF(icon_x+30, y-20, 200, 60), Qt.AlignVCenter, self.next_direction[:20]+"..." if len(self.next_direction)>20 else self.next_direction); painter.restore()
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['gray_medium'])))
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 1))
+        painter.drawEllipse(QPointF(icon_x, icon_y), 25, 25)
+        
+        # 아이콘 그리기
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 2))
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['white_soft'])))
+        if "좌회전" in self.next_direction:
+            self.draw_mini_left_arrow(painter, icon_x, icon_y)
+        elif "우회전" in self.next_direction:
+            self.draw_mini_right_arrow(painter, icon_x, icon_y)
+        elif "목적지" in self.next_direction or "도착" in self.next_direction:
+            self.draw_mini_destination(painter, icon_x, icon_y)
+        else:
+            self.draw_mini_straight(painter, icon_x, icon_y)
+        
+        # 지시 텍스트
+        font.setPointSize(FONT_SIZES['hud_next_direction'])
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['text_secondary'])))
+        painter.drawText(QRectF(icon_x+30, y-20, 200, 60), Qt.AlignVCenter, 
+                        self.next_direction[:20]+"..." if len(self.next_direction)>20 else self.next_direction)
+        painter.restore()
 
-    def draw_mini_left_arrow(self, painter, x, y): painter.drawPolygon(QPolygonF([QPointF(x-12,y),QPointF(x-5,y-7),QPointF(x-5,y-3),QPointF(x+8,y-3),QPointF(x+8,y+3),QPointF(x-5,y+3),QPointF(x-5,y+7)]))
-    def draw_mini_right_arrow(self, painter, x, y): painter.drawPolygon(QPolygonF([QPointF(x+12,y),QPointF(x+5,y-7),QPointF(x+5,y-3),QPointF(x-8,y-3),QPointF(x-8,y+3),QPointF(x+5,y+3),QPointF(x+5,y+7)]))
-    def draw_mini_straight(self, painter, x, y): painter.drawPolygon(QPolygonF([QPointF(x,y-12),QPointF(x-6,y-4),QPointF(x-3,y-4),QPointF(x-3,y+8),QPointF(x+3,y+8),QPointF(x+3,y-4),QPointF(x+6,y-4)]))
+    def draw_mini_left_arrow(self, painter, x, y): 
+        painter.drawPolygon(QPolygonF([QPointF(x-12,y),QPointF(x-5,y-7),QPointF(x-5,y-3),QPointF(x+8,y-3),QPointF(x+8,y+3),QPointF(x-5,y+3),QPointF(x-5,y+7)]))
+    def draw_mini_right_arrow(self, painter, x, y): 
+        painter.drawPolygon(QPolygonF([QPointF(x+12,y),QPointF(x+5,y-7),QPointF(x+5,y-3),QPointF(x-8,y-3),QPointF(x-8,y+3),QPointF(x+5,y+3),QPointF(x+5,y+7)]))
+    def draw_mini_straight(self, painter, x, y): 
+        painter.drawPolygon(QPolygonF([QPointF(x,y-12),QPointF(x-6,y-4),QPointF(x-3,y-4),QPointF(x-3,y+8),QPointF(x+3,y+8),QPointF(x+3,y-4),QPointF(x+6,y-4)]))
     def draw_mini_destination(self, painter, x, y):
-        painter.drawEllipse(QPointF(x,y), 8, 8); painter.setPen(QPen(QColor(50,200,50),3)); painter.drawLine(x-5,y,x-2,y+3); painter.drawLine(x-2,y+3,x+5,y-4)
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['danger'])))
+        painter.drawEllipse(QPointF(x,y), 8, 8)
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['white_soft'])))
+        painter.drawEllipse(QPointF(x,y), 3, 3)
 
     def draw_decorative_elements(self, painter, rect):
         painter.save()
-        gradient = QLinearGradient(0,20,rect.width(),20); gradient.setColorAt(0,QColor(0,170,210,0)); gradient.setColorAt(0.2,QColor(0,170,210,100)); gradient.setColorAt(0.5,QColor(0,200,255,200)); gradient.setColorAt(0.8,QColor(0,170,210,100)); gradient.setColorAt(1,QColor(0,170,210,0))
-        painter.setBrush(QBrush(gradient)); painter.setPen(Qt.NoPen); painter.drawRect(0,20,rect.width(),4); painter.drawRect(0,rect.height()-24,rect.width(),4)
-        corner_size=30; painter.setPen(QPen(QColor(0,200,255),3)); painter.setBrush(Qt.NoBrush)
-        painter.drawArc(15,15,corner_size,corner_size,90*16,90*16); painter.drawArc(rect.width()-45,15,corner_size,corner_size,0*16,90*16)
-        painter.drawArc(15,rect.height()-45,corner_size,corner_size,180*16,90*16); painter.drawArc(rect.width()-45,rect.height()-45,corner_size,corner_size,270*16,90*16)
+        # 더 은은한 상하단 라인
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['gray_medium'])))
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(0, 20, rect.width(), 2)
+        painter.drawRect(0, rect.height()-22, rect.width(), 2)
+        
+        # 더 심플한 코너 라인
+        corner_size = 20
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 2))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawArc(15, 15, corner_size, corner_size, 90*16, 90*16)
+        painter.drawArc(rect.width()-35, 15, corner_size, corner_size, 0*16, 90*16)
+        painter.drawArc(15, rect.height()-35, corner_size, corner_size, 180*16, 90*16)
+        painter.drawArc(rect.width()-35, rect.height()-35, corner_size, corner_size, 270*16, 90*16)
         painter.restore()
 
     def update_navigation_info(self, instructions, current_speed=0, route_progress=0):
         self.speed, self.progress = current_speed, route_progress
-        if not instructions: self.current_direction, self.current_distance, self.next_direction = "경로를 생성하세요", 0.0, ""; self.update(); return
+        if not instructions:
+            self.current_direction, self.current_distance, self.next_direction = "경로를 생성하세요", 0.0, ""
+            self.update()
+            return
+
         direction, distance = instructions[0]
-        new_direction = "직진" if distance > 5 else direction
-        if new_direction != self.target_direction: self.previous_direction, self.target_direction, self.direction_transition = self.target_direction, new_direction, 0.0
-        if distance > 5:
-            self.current_direction, self.current_distance = "직진", distance
-            self.next_direction = direction if ("좌회전" in direction or "우회전" in direction or "목적지" in direction) and distance<=50 else ""
+        is_turn_complete = ("좌회전" in direction or "우회전" in direction) and distance <= 1
+
+        if is_turn_complete and len(instructions) > 1:
+            next_dir, next_dist = instructions[1]
+            if "목적지" in next_dir and next_dist > 5:
+                self.current_direction = "직진"
+                self.current_distance = next_dist
+                self.next_direction = next_dir
+            else:
+                self.current_direction = next_dir
+                self.current_distance = next_dist
+                if len(instructions) > 2:
+                    self.next_direction = instructions[2][0]
+                else:
+                    self.next_direction = ""
         else:
-            self.current_direction, self.current_distance = direction, distance
-            self.next_direction = (f"직진 {int(round(instructions[1][1]))}m 후 도착" if "목적지" in instructions[1][0] else f"직진 {int(round(instructions[1][1]))}m") if len(instructions) > 1 else ""
+            if distance > 5:
+                self.current_direction = "직진"
+                self.current_distance = distance
+                self.next_direction = direction
+            else:
+                self.current_direction = direction
+                self.current_distance = distance
+                if len(instructions) > 1:
+                    next_dir, next_dist = instructions[1]
+                    if "목적지" in next_dir and next_dist <= 5:
+                        self.next_direction = next_dir
+                    else:
+                        self.next_direction = "직진"
+                else:
+                    self.next_direction = ""
+
+        new_direction = self.current_direction
+        if new_direction != self.target_direction:
+            self.previous_direction, self.target_direction, self.direction_transition = self.target_direction, new_direction, 0.0
+
         self.update()
 
 # ===================================================================
-# 자동차 아이템: 현대차 스타일
+# 자동차 아이템: 간단한 자동차 정면 모양 스타일 (상하반전)
 # ===================================================================
 class CarItem(QGraphicsObject):
     positionChanged = pyqtSignal(QPointF)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # (디자인 유지) 좌표/형상 동일
+        # [수정] 모든 도형의 y 좌표를 반전시켜 상하반전된 모양으로 정의
+        
+        # 차량 본체 (위쪽이 넓은 사다리꼴 모양)
         self.car_body = QPolygonF([
             QPointF(-45, -45), QPointF(45, -45), QPointF(40, 15), QPointF(-40, 15)
         ])
+        
+        # 차량 지붕 및 유리창 (아래쪽이 좁은 사다리꼴 모양)
         self.car_cabin = QPolygonF([
             QPointF(-30, 15), QPointF(30, 15), QPointF(25, 45), QPointF(-25, 45)
         ])
-        self.headlight_left  = QRectF(-35, -10, 15, 10)
-        self.headlight_right = QRectF(20,  -10, 15, 10)
-        self.grille = QRectF(-15, -15, 30, 10)
+        
+        # 헤드라이트 (좌/우) - y 좌표 반전
+        self.headlight_left = QRectF(-35, -10, 15, 10)
+        self.headlight_right = QRectF(20, -10, 15, 10)
 
+        # 전면 그릴 - y 좌표 반전
+        self.grille = QRectF(-15, -15, 30, 10)
+        
         self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
         self.setZValue(100)
         self.setRotation(0)
 
     def boundingRect(self):
-        return self.car_body.boundingRect().united(
-            self.car_cabin.boundingRect()
-        ).adjusted(-5, -5, 5, 5)
+        # 경계 사각형 계산은 동일
+        return self.car_body.boundingRect().united(self.car_cabin.boundingRect()).adjusted(-5, -5, 5, 5)
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # 그림자
+        # 그림자 효과
         painter.save()
         painter.translate(4, 4)
         painter.setBrush(QBrush(QColor(0, 0, 0, 70)))
@@ -430,27 +615,27 @@ class CarItem(QGraphicsObject):
         painter.drawPolygon(self.car_cabin)
         painter.restore()
 
-        # ★ 변경: 차량 본체 레드 그라데이션 (밝은 레드 → 딥 레드)
+        # [수정] 차량 본체 그라데이션을 빨간색으로 변경
         body_gradient = QLinearGradient(0, 15, 0, -45)
-        body_gradient.setColorAt(0, QColor(220, 30, 30))   # 밝은 레드
-        body_gradient.setColorAt(1, QColor(120, 0, 0))     # 딥 레드
+        body_gradient.setColorAt(0, QColor(220, 30, 30))  # 밝은 빨강
+        body_gradient.setColorAt(1, QColor(150, 20, 20))  # 어두운 빨강
         painter.setBrush(QBrush(body_gradient))
-        painter.setPen(QPen(QColor(255, 200, 200, 160), 2))  # 레드 톤 하이라이트
+        painter.setPen(QPen(QColor(255, 200, 200, 150), 2))
         painter.drawPolygon(self.car_body)
 
-        # (디자인 유지) 유리창/캐빈은 다크 그레이 유지
+        # [수정] 차량 지붕 및 유리창 그라데이션 방향 반전
         cabin_gradient = QLinearGradient(0, 45, 0, 15)
-        cabin_gradient.setColorAt(0, QColor(60, 60, 70))
-        cabin_gradient.setColorAt(1, QColor(25, 30, 40))
+        cabin_gradient.setColorAt(0, QColor(50, 60, 80))
+        cabin_gradient.setColorAt(1, QColor(20, 30, 50))
         painter.setBrush(QBrush(cabin_gradient))
-        painter.setPen(QPen(QColor(200, 200, 210, 100), 1))
+        painter.setPen(QPen(QColor(150, 180, 200, 100), 1))
         painter.drawPolygon(self.car_cabin)
 
-        # 헤드라이트 (그대로)
+        # 헤드라이트 그리기 (위치만 변경됨)
         headlight_gradient = QRadialGradient(0, 0, 15)
         headlight_gradient.setColorAt(0, QColor(255, 255, 220))
         headlight_gradient.setColorAt(1, QColor(200, 200, 150, 100))
-
+        
         painter.save()
         painter.translate(self.headlight_left.center())
         painter.setBrush(QBrush(headlight_gradient))
@@ -465,13 +650,12 @@ class CarItem(QGraphicsObject):
         painter.drawEllipse(QRectF(-7.5, -5, 15, 10))
         painter.restore()
 
-        # 그릴 (그대로)
+        # 그릴 그리기 (위치만 변경됨)
         painter.setBrush(QBrush(QColor(50, 60, 70)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(self.grille, 3, 3)
         painter.setPen(QPen(QColor(100, 110, 120), 1.5))
-        painter.drawLine(self.grille.left(), self.grille.center().y(),
-                         self.grille.right(), self.grille.center().y())
+        painter.drawLine(int(self.grille.left()), int(self.grille.center().y()), int(self.grille.right()), int(self.grille.center().y()))
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
@@ -486,7 +670,7 @@ class ParkingLotUI(QWidget):
     CELL, MARGIN, PATH_WIDTH = 30, 10, 50
     PIXELS_PER_METER = 50
     ENTRANCE = QPointF(200, 200)
-   
+    
     newWaypointsReceived = pyqtSignal(list)
     carPositionReceived = pyqtSignal(list)
 
@@ -503,7 +687,7 @@ class ParkingLotUI(QWidget):
     def setup_styles(self):
         self.setStyleSheet(f"""
             QWidget {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {HYUNDAI_COLORS['background']}, stop:1 {HYUNDAI_COLORS['surface']}); color: {HYUNDAI_COLORS['text_primary']}; font-family: 'Malgun Gothic'; }}
-            QGraphicsView {{ border: 3px solid {HYUNDAI_COLORS['accent']}; border-radius: 15px; background: #303030; }}
+            QGraphicsView {{ border: 3px solid {HYUNDAI_COLORS['accent']}; border-radius: 15px; background: '#303030'; }}
         """)
 
     def init_ui(self):
@@ -571,22 +755,22 @@ class ParkingLotUI(QWidget):
         start_point = self.car.pos() if self.car.isVisible() else self.ENTRANCE
         waypoints_qpoints = [self.clamp_point(QPointF(p[0], p[1])) for p in self.received_waypoints]
         self.snapped_waypoints = [self.find_nearest_free_cell_from_point(p) for p in waypoints_qpoints]
-       
+        
         segments, prev = [], start_point
         for goal in self.snapped_waypoints:
             c = self.astar(prev, goal)
             if not c: QMessageBox.warning(self, "경로 실패", f"경로를 찾을 수 없습니다: {prev.x():.0f},{prev.y():.0f} -> {goal.x():.0f},{goal.y():.0f}"); return
             segments.append(c); prev = goal
-       
+        
         whole = [c for i, seg in enumerate(segments) for c in (seg if i == 0 else seg[1:])]
         self.full_path_points = [self.cell_to_pt_center(c) for c in self.simplify_cells(whole)]
         if not self.full_path_points: return
 
         self.full_path_points[0], self.full_path_points[-1] = start_point, self.snapped_waypoints[-1]
-       
+        
         self.clear_path_layer()
         self.draw_straight_path(self.full_path_points)
-       
+        
         self.current_path_segment_index = 0
         if not self.car.isVisible():
             self.car.setPos(start_point)
@@ -598,45 +782,45 @@ class ParkingLotUI(QWidget):
         if not self.initial_fit:
             self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
             self.initial_fit = True
-           
+            
     def closeEvent(self, event):
         self.waypoint_receiver.stop()
         super().closeEvent(event)
 
     def add_block(self, x, y, w, h, color, label=""):
         r = QGraphicsRectItem(QRectF(x, y, w, h))
-        if "장애인" in label: 
-            # 1. 장애인 주차장 → 하늘색 변경
+        
+        # 브러시(채우기) 설정
+        if "장애인" in label:
             gradient = QLinearGradient(x,y,x+w,y+h)
-            gradient.setColorAt(0,QColor(135,206,250,200))  # 라이트 스카이 블루
-            gradient.setColorAt(1,QColor(70,130,180,150))   # 스틸 블루
+            gradient.setColorAt(0,QColor(135, 206, 250, 200))
+            gradient.setColorAt(1,QColor(70, 130, 180,150))
             r.setBrush(QBrush(gradient))
-        elif "전기차" in label: 
+        elif "전기차" in label:
             gradient = QLinearGradient(x,y,x+w,y+h)
             gradient.setColorAt(0,QColor(0,200,130,200))
             gradient.setColorAt(1,QColor(0,150,100,150))
             r.setBrush(QBrush(gradient))
-        elif "일반" in label: 
-            # 2. 일반 주차구역 → 회색 변경
+        elif "일반" in label:
             gradient = QLinearGradient(x,y,x+w,y+h)
-            gradient.setColorAt(0,QColor(150,150,150,200))  # 밝은 회색
-            gradient.setColorAt(1,QColor(100,100,100,150))  # 진한 회색
+            gradient.setColorAt(0,QColor("#303030"))
+            gradient.setColorAt(1,QColor("#303030"))
             r.setBrush(QBrush(gradient))
-        else: 
+        else:
             r.setBrush(QBrush(color))
-        
-        # 기존 테두리 (얇은 테두리)
-        r.setPen(QPen(QColor(255,255,255,100),2))
-        r.setParentItem(self.layer_static)
-        
-        # 주차 구역에만 내부 테두리 추가 (장애인, 전기차, 일반)
+            
+        # 펜(테두리) 설정 - 요청사항 반영
         if "장애인" in label or "전기차" in label or "일반" in label:
-            # 내부 테두리 사각형 생성 (10픽셀 안쪽)
-            inner_border = QGraphicsRectItem(QRectF(x + 10, y + 10, w - 20, h - 20))
-            inner_border.setBrush(QBrush(Qt.NoBrush))  # 투명 배경
-            inner_border.setPen(QPen(QColor(255, 255, 255), 10))  # 흰색 10픽셀 굵기
-            inner_border.setParentItem(self.layer_static)
-        
+            # 1~17번 주차 구역에 해당하는 경우: 흰색, 10픽셀 테두리
+            pen = QPen(QColor("white"), 10)
+            r.setPen(pen)
+        else:
+            # 그 외의 블록(장애물, 입출차 구역 등)은 기존 테두리 유지
+            r.setPen(QPen(QColor(255,255,255,100), 2))
+
+        r.setParentItem(self.layer_static)
+
+        # 라벨 설정
         if label:
             t = QGraphicsSimpleTextItem(label)
             t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
@@ -646,154 +830,29 @@ class ParkingLotUI(QWidget):
             t.setPos(x+5,y+h-25)
             t.setParentItem(self.layer_static)
 
-    def add_unified_parking_area(self, x, y, w, h, color, label=""):
-        """통합된 주차 구역을 그리는 함수 (개별 테두리 없이)"""
-        r = QGraphicsRectItem(QRectF(x, y, w, h))
-        if "장애인" in label: 
-            gradient = QLinearGradient(x,y,x+w,y+h)
-            gradient.setColorAt(0,QColor(135,206,250,200))
-            gradient.setColorAt(1,QColor(70,130,180,150))
-            r.setBrush(QBrush(gradient))
-        elif "전기차" in label: 
-            gradient = QLinearGradient(x,y,x+w,y+h)
-            gradient.setColorAt(0,QColor(0,200,130,200))
-            gradient.setColorAt(1,QColor(0,150,100,150))
-            r.setBrush(QBrush(gradient))
-        elif "일반" in label: 
-            gradient = QLinearGradient(x,y,x+w,y+h)
-            gradient.setColorAt(0,QColor(150,150,150,200))
-            gradient.setColorAt(1,QColor(100,100,100,150))
-            r.setBrush(QBrush(gradient))
-        else: 
-            r.setBrush(QBrush(color))
-        
-        # 기존 테두리 (얇은 테두리)
-        r.setPen(QPen(QColor(255,255,255,100),2))
-        r.setParentItem(self.layer_static)
-        
-        # 전체 영역에 하나의 내부 테두리만 추가
-        if "장애인" in label or "전기차" in label or "일반" in label:
-            inner_border = QGraphicsRectItem(QRectF(x + 10, y + 10, w - 20, h - 20))
-            inner_border.setBrush(QBrush(Qt.NoBrush))
-            inner_border.setPen(QPen(QColor(255, 255, 255), 10))
-            inner_border.setParentItem(self.layer_static)
-        
-        if label:
-            t = QGraphicsSimpleTextItem(label)
-            t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
-            t.setBrush(QColor(255,255,255))
-            font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
-            t.setFont(font)
-            t.setPos(x+5,y+h-25)
-            t.setParentItem(self.layer_static)
-
-    def add_hatched(self, x, y, w, h, edge=QColor("black"), fill=QColor(80, 80, 80, 90)):  # 3. 장애물 → 진한 회색
-        r = QGraphicsRectItem(QRectF(x,y,w,h))
-        b = QBrush(fill)
-        b.setStyle(Qt.BDiagPattern)
-        r.setBrush(b)
-        r.setPen(QPen(edge,3))
-        r.setParentItem(self.layer_static)
-        t = QGraphicsSimpleTextItem("통행 불가")
-        t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
-        t.setBrush(QColor(255,100,100))
-        font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
-        t.setFont(font)
-        t.setPos(x+10,y+h-30)
-        t.setParentItem(self.layer_static)
+    def add_hatched(self, x, y, w, h, edge=QColor("black"), fill=QColor(220, 20, 60, 90)):
+        r = QGraphicsRectItem(QRectF(x,y,w,h)); b = QBrush(fill); b.setStyle(Qt.BDiagPattern); r.setBrush(b); r.setPen(QPen(edge,3)); r.setParentItem(self.layer_static)
+        t = QGraphicsSimpleTextItem("통행 불가"); t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True); t.setBrush(QColor(255,100,100))
+        font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold); t.setFont(font); t.setPos(x+10,y+h-30); t.setParentItem(self.layer_static)
 
     def add_dot_label_static(self, p: QPointF, text: str, color=QColor("blue")):
-        d = QGraphicsEllipseItem(p.x()-8,p.y()-8,16,16)
-        gradient = QLinearGradient(p.x()-8,p.y()-8,p.x()+8,p.y()+8)
-        gradient.setColorAt(0,QColor(0,170,210))
-        gradient.setColorAt(1,QColor(0,44,95))
-        d.setBrush(QBrush(gradient))
-        d.setPen(QPen(QColor(255,255,255),3))
-        d.setParentItem(self.layer_static)
-        t = QGraphicsSimpleTextItem(text)
-        t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
-        t.setBrush(QColor(0,200,255))
-        font = QFont("Malgun Gothic", FONT_SIZES['map_io_label'], QFont.Bold)
-        t.setFont(font)
-        t.setPos(p.x()-20,p.y()+25)
-        t.setParentItem(self.layer_static)
-
-    def add_parking_slot_dividers(self):
-        """통합된 주차구역 내에서 개별 주차칸을 구분하는 선들을 그리는 함수"""
-        divider_color = QColor(255, 255, 255)  # 흰색
-        divider_width = 10
-        
-        # 하단 주차 구역들 (y=1600~2000) 내부 구분선들 - 모든 경계선
-        divider_positions = [300, 600, 800, 1000, 1200, 1400]  # 모든 주차칸 사이
-        for x in divider_positions:
-            divider = QGraphicsRectItem(QRectF(x - 5, 1600, 10, 400))
-            divider.setBrush(QBrush(divider_color))
-            divider.setPen(QPen(Qt.NoPen))
-            divider.setParentItem(self.layer_static)
-        
-        # 중간 주차 구역들 (400~1600, y=400~800) 내부 구분선들
-        middle_positions = [600, 800, 1000, 1200, 1400]  # 6개 칸을 나누는 5개 선
-        for x in middle_positions:
-            divider = QGraphicsRectItem(QRectF(x - 5, 400, 10, 400))
-            divider.setBrush(QBrush(divider_color))
-            divider.setPen(QPen(Qt.NoPen))
-            divider.setParentItem(self.layer_static)
-        
-        # 우측 주차 구역들 (1600~2000, y=800~1600) 내부 구분선들
-        right_positions = [1000, 1200, 1400]  # 4개 칸을 나누는 3개 선
-        for y in right_positions:
-            divider = QGraphicsRectItem(QRectF(1600, y - 5, 400, 10))
-            divider.setBrush(QBrush(divider_color))
-            divider.setPen(QPen(Qt.NoPen))
-            divider.setParentItem(self.layer_static)
+        d = QGraphicsEllipseItem(p.x()-8,p.y()-8,16,16); gradient = QLinearGradient(p.x()-8,p.y()-8,p.x()+8,p.y()+8); gradient.setColorAt(0,QColor(0,170,210)); gradient.setColorAt(1,QColor(0,44,95)); d.setBrush(QBrush(gradient)); d.setPen(QPen(QColor(255,255,255),3)); d.setParentItem(self.layer_static)
+        t = QGraphicsSimpleTextItem(text); t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True); t.setBrush(QColor(0,200,255))
+        font = QFont("Malgun Gothic", FONT_SIZES['map_io_label'], QFont.Bold); t.setFont(font); t.setPos(p.x()-20,p.y()+25); t.setParentItem(self.layer_static)
 
     def build_static_layout(self):
-        # 색상 정의
-        c_dis = QColor(135, 206, 250)  # 장애인 → 하늘색
-        c_ele = QColor(0, 200, 130)    # 전기차
-        c_gen = QColor(150, 150, 150)  # 일반 → 회색
-        c_obs = QColor(108, 117, 125)  # 장애물
-        c_emp = QColor(120, 120, 120)  # 빈기둥 → 회색
-        c_io = QColor(120, 120, 120)   # 입출차 → 회색
-        
-        border = QGraphicsRectItem(0, 0, self.SCENE_W, self.SCENE_H)
-        border.setPen(QPen(QColor(0, 170, 210), 12))
-        border.setBrush(QBrush(Qt.NoBrush))
-        border.setParentItem(self.layer_static)
-        
-        # 하단 주차 구역들을 통합된 영역으로 생성
-        # 장애인 주차 구역 (0~600, 1600~2000)
-        self.add_unified_parking_area(0, 1600, 600, 400, c_dis, "장애인")
-        
-        # 일반 주차 구역 (600~1200, 1600~2000) 
-        self.add_unified_parking_area(600, 1600, 600, 400, c_gen, "일반")
-        
-        # 전기차 주차 구역 (1200~1600, 1600~2000)
-        self.add_unified_parking_area(1200, 1600, 400, 400, c_ele, "전기차")
-        
-        # 중간 주차 구역들을 하나의 통합된 일반 구역으로 (400~1600, 400~800)
-        self.add_unified_parking_area(400, 400, 1200, 400, c_gen, "일반")
-        
-        # 우측 주차 구역들을 하나의 통합된 일반 구역으로 (1600~2000, 800~1600)
-        self.add_unified_parking_area(1600, 800, 400, 800, c_gen, "일반")
-        
-        # 비 주차 구역들
-        self.add_block(1600, 1600, 400, 400, c_emp, "빈기둥")
-        self.add_block(550, 1050, 800, 300, c_obs, "장애물")
-        self.add_block(1600, 400, 400, 400, c_emp, "빈기둥")
-        self.add_block(0, 0, 400, 400, c_io, "입출차")
-        
+        c_dis, c_ele, c_gen, c_obs, c_emp, c_io = QColor(135, 206, 250), QColor(0, 200, 130), QColor("#303030"), QColor(108, 117, 125), QColor(206, 212, 218), QColor("#303030")
+        border = QGraphicsRectItem(0, 0, self.SCENE_W, self.SCENE_H); border.setPen(QPen(QColor(0, 170, 210), 12)); border.setBrush(QBrush(Qt.NoBrush)); border.setParentItem(self.layer_static)
+        base = [(0, 1600, 300, 400, c_dis, "장애인"), (300, 1600, 300, 400, c_dis, "장애인"), (600, 1600, 200, 400, c_gen, "일반"), (800, 1600, 200, 400, c_gen, "일반"), (1000, 1600, 200, 400, c_gen, "일반"), (1200, 1600, 200, 400, c_ele, "전기차"), (1400, 1600, 200, 400, c_ele, "전기차"), (1600, 1600, 400, 400, c_emp, "101"), (550, 1050, 800, 300, c_obs, "장애물"), (1600, 400, 400, 400, c_emp, "102"), (0, 0, 400, 400, c_io, "입출차")]
+        for x, y, w, h, c, l in base: self.add_block(x, y, w, h, c, l)
+        for i in range(6): self.add_block(400 + i * 200, 400, 200, 400, c_gen, "일반")
+        for i in range(4): self.add_block(1600, 800 + i * 200, 400, 200, c_gen, "일반")
         self.add_hatched(400, 0, 1600, 400)
         self.add_dot_label_static(self.ENTRANCE, "입구", QColor(0, 170, 210))
-        
-        # 개별 주차칸 구분선 추가
-        self.add_parking_slot_dividers()
 
     def build_occupancy(self):
-        W, H, C = self.SCENE_W, self.SCENE_H, self.CELL
-        gx, gy = (W + C - 1) // C, (H + C - 1) // C
-        self.grid_w, self.grid_h = gx, gy
-        self.occ = bytearray(gx * gy)
+        W, H, C = self.SCENE_W, self.SCENE_H, self.CELL; gx, gy = (W + C - 1) // C, (H + C - 1) // C
+        self.grid_w, self.grid_h = gx, gy; self.occ = bytearray(gx * gy)
         def idx(cx, cy): return cy * gx + cx
         def block_rect(x, y, w, h):
             x0,y0,x1,y1 = max(0,x-self.MARGIN), max(0,y-self.MARGIN), min(W,x+w+self.MARGIN), min(H,y+h+self.MARGIN)
@@ -801,14 +860,16 @@ class ParkingLotUI(QWidget):
             for cy in range(cy0,cy1+1):
                 for cx in range(cx0,cx1+1):
                     if 0<=cx<gx and 0<=cy<gy: self.occ[cy*gx+cx] = 1
-        for x,y,w,h,c,l in [(550,1050,800,300,0,""),(400,0,1600,400,0,""),(1600,400,400,400,0,""),(1600,1600,400,400,0,""),(0,1600,600,400,0,""),(600,1600,600,400,0,""),(1200,1600,400,400,0,""),(400,400,1200,400,0,""),(1600,800,400,800,0,"")]: block_rect(x,y,w,h)
+        for x,y,w,h,c,l in [(550,1050,800,300,0,""),(400,0,1600,400,0,""),(1600,400,400,400,0,""),(1600,1600,400,400,0,""),(0,1600,300,400,0,""),(300,1600,300,400,0,""),(600,1600,200,400,0,""),(800,1600,200,400,0,""),(1000,1600,200,400,0,""),(1200,1600,200,400,0,""),(1400,1600,200,400,0,"")]: block_rect(x,y,w,h)
+        for i in range(6): block_rect(400+i*200,400,200,400)
+        for i in range(4): block_rect(1600,800+i*200,400,200)
         self._occ_idx = idx
 
     def clamp_point(self, p: QPointF): return QPointF(min(self.SCENE_W-1.,max(0.,p.x())), min(self.SCENE_H-1.,max(0.,p.y())))
     def pt_to_cell(self, p: QPointF): return int(p.x()//self.CELL), int(p.y()//self.CELL)
     def cell_to_pt_center(self, c): return QPointF(c[0]*self.CELL+self.CELL/2., c[1]*self.CELL+self.CELL/2.)
     def is_cell_free(self, cx, cy): return 0<=cx<self.grid_w and 0<=cy<self.grid_h and self.occ[self._occ_idx(cx,cy)]==0
-   
+    
     def find_nearest_free_cell_from_point(self, p: QPointF, max_radius_cells=30):
         sx, sy = self.pt_to_cell(p)
         if self.is_cell_free(sx, sy): return self.cell_to_pt_center((sx, sy))
@@ -828,13 +889,13 @@ class ParkingLotUI(QWidget):
         occ, idx = self.occ, self._occ_idx
         if not (0 <= sx < W and 0 <= sy < H and 0 <= gx < W and 0 <= gy < H) or occ[idx(sx, sy)] or occ[idx(gx, gy)]:
             return None
-       
+        
         openh = [(abs(sx - gx) + abs(sy - gy), 0, (sx, sy))]
         came, g = {}, {(sx, sy): 0}
-       
+        
         while openh:
             _, gc, (x, y) = heappop(openh)
-           
+            
             if (x, y) == (gx, gy):
                 path = []
                 curr = (x, y)
@@ -844,20 +905,20 @@ class ParkingLotUI(QWidget):
                 path.append((sx, sy))
                 path.reverse()
                 return path
-           
+            
             for dx, dy, cst in [(1, 0, 1), (-1, 0, 1), (0, 1, 1), (0, -1, 1)]:
                 nx, ny = x + dx, y + dy
-               
+                
                 if not (0 <= nx < W and 0 <= ny < H) or occ[idx(nx, ny)]:
                     continue
-               
+                
                 ng = gc + cst
-               
+                
                 if (nx, ny) not in g or ng < g[(nx, ny)]:
                     g[(nx, ny)] = ng
                     came[(nx, ny)] = (x, y)
                     heappush(openh, (ng + abs(nx - gx) + abs(ny - gy), ng, (nx, ny)))
-                   
+                    
         return None
 
     def simplify_cells(self, cells):
@@ -918,15 +979,26 @@ class ParkingLotUI(QWidget):
         for child in self.layer_path.childItems(): self.scene.removeItem(child)
 
     def _update_current_segment(self, car_pos):
-        if not self.full_path_points or len(self.full_path_points)<2: return
-        while self.current_path_segment_index < len(self.full_path_points)-2:
-            p_curr, p_next, p_future = self.full_path_points[self.current_path_segment_index], self.full_path_points[self.current_path_segment_index+1], self.full_path_points[self.current_path_segment_index+2]
-            v_seg, v_car = p_next - p_curr, car_pos - p_curr
-            if QPointF.dotProduct(v_seg, v_seg)==0: self.current_path_segment_index+=1; continue
-            proj_ratio = QPointF.dotProduct(v_car, v_seg)/QPointF.dotProduct(v_seg, v_seg)
-            dist_to_next, dist_to_future = sqrt((car_pos.x()-p_next.x())**2+(car_pos.y()-p_next.y())**2), sqrt((car_pos.x()-p_future.x())**2+(car_pos.y()-p_future.y())**2)
-            if proj_ratio > 1 or dist_to_future < dist_to_next: self.current_path_segment_index+=1
-            else: break
+        if not self.full_path_points or len(self.full_path_points) < 2:
+            return
+            
+        while self.current_path_segment_index < len(self.full_path_points) - 1:
+            p_curr = self.full_path_points[self.current_path_segment_index]
+            p_next = self.full_path_points[self.current_path_segment_index + 1]
+
+            dist_to_next = sqrt((car_pos.x() - p_next.x())**2 + (car_pos.y() - p_next.y())**2)
+
+            v_seg = p_next - p_curr
+            v_car = car_pos - p_curr
+            seg_len_sq = QPointF.dotProduct(v_seg, v_seg)
+            proj_ratio = 1.0
+            if seg_len_sq > 0:
+                proj_ratio = QPointF.dotProduct(v_car, v_seg) / seg_len_sq
+
+            if dist_to_next < 50 or proj_ratio > 1.0:
+                self.current_path_segment_index += 1
+            else:
+                break
 
     def update_hud_from_car_position(self, car_pos):
         if not self.full_path_points: return
@@ -944,18 +1016,18 @@ class ParkingLotUI(QWidget):
 if __name__ == "__main__":
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
-   
+    
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
-   
+    
     font = QFont("Malgun Gothic"); font.setPointSize(10); app.setFont(font)
 
     app.setStyleSheet(f"""
-        QApplication {{ background-color: {HYUNDAI_COLORS['background']}; }}
+        QApplication {{ background-color: '#303030'; }}
         QMessageBox {{ background: {HYUNDAI_COLORS['surface']}; color: {HYUNDAI_COLORS['text_primary']}; border: 1px solid {HYUNDAI_COLORS['accent']}; border-radius: 10px; }}
         QMessageBox QPushButton {{ background: {HYUNDAI_COLORS['primary']}; border: 1px solid {HYUNDAI_COLORS['secondary']}; border-radius: 5px; color: white; padding: 8px 16px; min-width: 60px; font-size: {FONT_SIZES['msgbox_button']}pt; }}
     """)
-   
+    
     ui = ParkingLotUI()
     ui.showMaximized()
     sys.exit(app.exec_())

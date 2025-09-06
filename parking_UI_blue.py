@@ -161,14 +161,12 @@ class PremiumHudWidget(QFrame):
         self.setStyleSheet(f"""
             PremiumHudWidget {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {HYUNDAI_COLORS['background']},
-                    stop:0.3 rgba(26, 30, 46, 240),
-                    stop:0.7 rgba(10, 14, 26, 240),
-                    stop:1 {HYUNDAI_COLORS['background']});
+                    stop:0 #1a2a4a, 
+                    stop:1 #0f1a30);
                 border: 2px solid qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 {HYUNDAI_COLORS['accent']},
-                    stop:0.5 {HYUNDAI_COLORS['secondary']},
-                    stop:1 {HYUNDAI_COLORS['accent']});
+                    stop:0 #4a6a9a,
+                    stop:0.5 #6a8ac0,
+                    stop:1 #4a6a9a);
                 border-radius: 25px;
             }}
         """)
@@ -271,20 +269,36 @@ class PremiumHudWidget(QFrame):
         painter.setBrush(QBrush(gradient_inner)); painter.setPen(Qt.NoPen); painter.drawEllipse(QPointF(0, 0), 45, 45)
         painter.scale(1 / self.pulse_scale, 1 / self.pulse_scale); self.draw_3d_direction_icon(painter); painter.restore()
 
+    # PremiumHudWidget 클래스 내부
     def draw_3d_direction_icon(self, painter):
-        painter.save(); painter.setPen(Qt.NoPen); painter.setBrush(QBrush(QColor(0, 0, 0, 80)))
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 80)))
         action = None
-        if self.current_distance <= 0:
-            if "좌회전" in self.current_direction: action = self.draw_3d_left_arrow
-            elif "우회전" in self.current_direction: action = self.draw_3d_right_arrow
-            elif "목적지" in self.current_direction: action = self.draw_3d_destination_icon
+
+        # 주 안내 텍스트(current_direction)에 따라 아이콘이 결정됩니다.
+        if "좌회전" in self.current_direction:
+            action = self.draw_3d_left_arrow
+        elif "우회전" in self.current_direction:
+            action = self.draw_3d_right_arrow
+        elif "목적지" in self.current_direction:
+            action = self.draw_3d_destination_icon
+
         if action:
-            painter.translate(3, 3); action(painter, 0, 0, shadow=True)
+            painter.translate(3, 3)
+            action(painter, 0, 0, shadow=True)
             painter.translate(-3, -3)
-            gradient = QLinearGradient(-30, -20, 30, 20); gradient.setColorAt(0, QColor(255, 255, 255)); gradient.setColorAt(1, QColor(200, 200, 200))
-            painter.setBrush(QBrush(gradient)); painter.setPen(QPen(QColor(255, 255, 255), 3)); action(painter, 0, 0)
-        else: self.draw_3d_straight_arrow(painter, 0, 0)
+            gradient = QLinearGradient(-30, -20, 30, 20)
+            gradient.setColorAt(0, QColor(255, 255, 255))
+            gradient.setColorAt(1, QColor(200, 200, 200))
+            painter.setBrush(QBrush(gradient))
+            painter.setPen(QPen(QColor(255, 255, 255), 3))
+            action(painter, 0, 0)
+        else:
+            # current_direction이 '직진'일 경우 직진 화살표를 그립니다.
+            self.draw_3d_straight_arrow(painter, 0, 0)
         painter.restore()
+
 
     def draw_3d_left_arrow(self, painter, x, y, shadow=False):
         if not shadow: painter.drawPolygon(QPolygonF([QPointF(x-35,y),QPointF(x-15,y-20),QPointF(x-15,y-10),QPointF(x+20,y-10),QPointF(x+20,y+10),QPointF(x-15,y+10),QPointF(x-15,y+20)]))
@@ -375,18 +389,70 @@ class PremiumHudWidget(QFrame):
         painter.drawArc(15,rect.height()-45,corner_size,corner_size,180*16,90*16); painter.drawArc(rect.width()-45,rect.height()-45,corner_size,corner_size,270*16,90*16)
         painter.restore()
 
+    # PremiumHudWidget 클래스 내부
+
     def update_navigation_info(self, instructions, current_speed=0, route_progress=0):
         self.speed, self.progress = current_speed, route_progress
-        if not instructions: self.current_direction, self.current_distance, self.next_direction = "경로를 생성하세요", 0.0, ""; self.update(); return
+        if not instructions:
+            self.current_direction, self.current_distance, self.next_direction = "경로를 생성하세요", 0.0, ""
+            self.update()
+            return
+
+        # 현재 지시 (가장 가까운 기동 지점)
         direction, distance = instructions[0]
-        new_direction = "직진" if distance > 0 else direction
-        if new_direction != self.target_direction: self.previous_direction, self.target_direction, self.direction_transition = self.target_direction, new_direction, 0.0
-        if distance > 0:
-            self.current_direction, self.current_distance = "직진", distance
-            self.next_direction = direction if ("좌회전" in direction or "우회전" in direction or "목적지" in direction) and distance<=50 else ""
+        
+        # 요청사항 1: 좌/우회전이 1m 이내로 남았는지 확인
+        is_turn_complete = ("좌회전" in direction or "우회전" in direction) and distance <= 1
+
+        # --- 로직 분기 1: 턴이 '완료'된 것으로 간주될 때 ---
+        if is_turn_complete and len(instructions) > 1:
+            # 다음 지시를 기준으로 화면을 구성합니다.
+            next_dir, next_dist = instructions[1]
+            
+            # 요청사항 2: 다음 경로가 5m 이상 남은 '목적지'인 경우
+            if "목적지" in next_dir and next_dist > 5:
+                # 주 안내는 '직진'으로, 거리는 목적지까지의 거리로 표시합니다.
+                self.current_direction = "직진"
+                self.current_distance = next_dist
+                # 하단 '다음 안내'에 실제 목적지를 미리 보여줍니다.
+                self.next_direction = next_dir
+            else:
+                # 그 외의 경우 (다음 경로가 목적지가 아니거나, 5m 이내 목적지)
+                # 주 안내에 다음 경로를 바로 표시합니다.
+                self.current_direction = next_dir
+                self.current_distance = next_dist
+                # 그 다음다음 경로가 있다면 '다음 안내'에 표시합니다.
+                if len(instructions) > 2:
+                    self.next_direction = instructions[2][0]
+                else:
+                    self.next_direction = ""
+        
+        # --- 로직 분기 2: 일반 주행 상황 (턴이 완료되지 않았거나, 직진 중) ---
         else:
-            self.current_direction, self.current_distance = direction, distance
-            self.next_direction = (f"직진 {int(round(instructions[1][1]))}m 후 도착" if "목적지" in instructions[1][0] else f"직진 {int(round(instructions[1][1]))}m") if len(instructions) > 1 else ""
+            # 기동 지점까지 5m 이상 남았을 때
+            if distance > 5:
+                self.current_direction = "직진"
+                self.current_distance = distance
+                self.next_direction = direction  # 하단에 다가올 기동 미리보기
+            # 기동 지점까지 5m 이내로 접근했을 때
+            else:  # distance <= 5
+                self.current_direction = direction
+                self.current_distance = distance
+                # 하단 '다음 안내' 로직
+                if len(instructions) > 1:
+                    next_dir, next_dist = instructions[1]
+                    if "목적지" in next_dir and next_dist <= 5:
+                        self.next_direction = next_dir
+                    else:
+                        self.next_direction = "직진"
+                else:
+                    self.next_direction = ""
+
+        # 애니메이션 로직 (변경 없음)
+        new_direction = self.current_direction
+        if new_direction != self.target_direction:
+            self.previous_direction, self.target_direction, self.direction_transition = self.target_direction, new_direction, 0.0
+
         self.update()
 
 # ===================================================================
@@ -800,16 +866,35 @@ class ParkingLotUI(QWidget):
     def clear_path_layer(self):
         for child in self.layer_path.childItems(): self.scene.removeItem(child)
 
+    #현재 경로/다음 경로 타이밍을 픽셀 단위 마진을 줘서 컨트롤
     def _update_current_segment(self, car_pos):
-        if not self.full_path_points or len(self.full_path_points)<2: return
-        while self.current_path_segment_index < len(self.full_path_points)-2:
-            p_curr, p_next, p_future = self.full_path_points[self.current_path_segment_index], self.full_path_points[self.current_path_segment_index+1], self.full_path_points[self.current_path_segment_index+2]
-            v_seg, v_car = p_next - p_curr, car_pos - p_curr
-            if QPointF.dotProduct(v_seg, v_seg)==0: self.current_path_segment_index+=1; continue
-            proj_ratio = QPointF.dotProduct(v_car, v_seg)/QPointF.dotProduct(v_seg, v_seg)
-            dist_to_next, dist_to_future = sqrt((car_pos.x()-p_next.x())**2+(car_pos.y()-p_next.y())**2), sqrt((car_pos.x()-p_future.x())**2+(car_pos.y()-p_future.y())**2)
-            if proj_ratio > 1 or dist_to_future < dist_to_next: self.current_path_segment_index+=1
-            else: break
+        if not self.full_path_points or len(self.full_path_points) < 2:
+            return
+            
+        # [수정] 자동차가 다음 웨이포인트에 충분히 가까워지면 다음 경로로 넘어가도록 로직 변경
+        while self.current_path_segment_index < len(self.full_path_points) - 1: # 루프 조건도 약간 수정
+            p_curr = self.full_path_points[self.current_path_segment_index]
+            p_next = self.full_path_points[self.current_path_segment_index + 1]
+
+            # 다음 웨이포인트까지의 물리적 거리 계산
+            dist_to_next = sqrt((car_pos.x() - p_next.x())**2 + (car_pos.y() - p_next.y())**2)
+
+            # 현재 경로 벡터에 자동차 위치를 투영하여 진행률 계산
+            v_seg = p_next - p_curr
+            v_car = car_pos - p_curr
+            seg_len_sq = QPointF.dotProduct(v_seg, v_seg)
+            proj_ratio = 1.0 # 기본값
+            if seg_len_sq > 0:
+                proj_ratio = QPointF.dotProduct(v_car, v_seg) / seg_len_sq
+
+            # [수정] 도착 판정 조건 추가:
+            # 1. 다음 웨이포인트에 50픽셀 이내로 접근했거나,
+            # 2. 수학적으로 웨이포인트를 지나쳤을 때 다음 세그먼트로 업데이트
+            if dist_to_next < 50 or proj_ratio > 1.0:
+                self.current_path_segment_index += 1
+            else:
+                # 두 조건 모두 만족하지 않으면 현재 경로 유지
+                break
 
     def update_hud_from_car_position(self, car_pos):
         if not self.full_path_points: return
