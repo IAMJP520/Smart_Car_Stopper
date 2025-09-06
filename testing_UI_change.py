@@ -392,12 +392,6 @@ class PremiumHudWidget(QFrame):
 # ===================================================================
 # 자동차 아이템: 현대차 스타일
 # ===================================================================
-# ===================================================================
-# 자동차 아이템: 제공된 이미지의 파란색 차량 스타일
-# ===================================================================
-# ===================================================================
-# 자동차 아이템: 간단한 자동차 정면 모양 스타일 (상하반전)
-# ===================================================================
 class CarItem(QGraphicsObject):
     positionChanged = pyqtSignal(QPointF)
 
@@ -630,8 +624,60 @@ class ParkingLotUI(QWidget):
             r.setBrush(QBrush(gradient))
         else: 
             r.setBrush(QBrush(color))
+        
+        # 기존 테두리 (얇은 테두리)
         r.setPen(QPen(QColor(255,255,255,100),2))
         r.setParentItem(self.layer_static)
+        
+        # 주차 구역에만 내부 테두리 추가 (장애인, 전기차, 일반)
+        if "장애인" in label or "전기차" in label or "일반" in label:
+            # 내부 테두리 사각형 생성 (10픽셀 안쪽)
+            inner_border = QGraphicsRectItem(QRectF(x + 10, y + 10, w - 20, h - 20))
+            inner_border.setBrush(QBrush(Qt.NoBrush))  # 투명 배경
+            inner_border.setPen(QPen(QColor(255, 255, 255), 10))  # 흰색 10픽셀 굵기
+            inner_border.setParentItem(self.layer_static)
+        
+        if label:
+            t = QGraphicsSimpleTextItem(label)
+            t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+            t.setBrush(QColor(255,255,255))
+            font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
+            t.setFont(font)
+            t.setPos(x+5,y+h-25)
+            t.setParentItem(self.layer_static)
+
+    def add_unified_parking_area(self, x, y, w, h, color, label=""):
+        """통합된 주차 구역을 그리는 함수 (개별 테두리 없이)"""
+        r = QGraphicsRectItem(QRectF(x, y, w, h))
+        if "장애인" in label: 
+            gradient = QLinearGradient(x,y,x+w,y+h)
+            gradient.setColorAt(0,QColor(135,206,250,200))
+            gradient.setColorAt(1,QColor(70,130,180,150))
+            r.setBrush(QBrush(gradient))
+        elif "전기차" in label: 
+            gradient = QLinearGradient(x,y,x+w,y+h)
+            gradient.setColorAt(0,QColor(0,200,130,200))
+            gradient.setColorAt(1,QColor(0,150,100,150))
+            r.setBrush(QBrush(gradient))
+        elif "일반" in label: 
+            gradient = QLinearGradient(x,y,x+w,y+h)
+            gradient.setColorAt(0,QColor(150,150,150,200))
+            gradient.setColorAt(1,QColor(100,100,100,150))
+            r.setBrush(QBrush(gradient))
+        else: 
+            r.setBrush(QBrush(color))
+        
+        # 기존 테두리 (얇은 테두리)
+        r.setPen(QPen(QColor(255,255,255,100),2))
+        r.setParentItem(self.layer_static)
+        
+        # 전체 영역에 하나의 내부 테두리만 추가
+        if "장애인" in label or "전기차" in label or "일반" in label:
+            inner_border = QGraphicsRectItem(QRectF(x + 10, y + 10, w - 20, h - 20))
+            inner_border.setBrush(QBrush(Qt.NoBrush))
+            inner_border.setPen(QPen(QColor(255, 255, 255), 10))
+            inner_border.setParentItem(self.layer_static)
+        
         if label:
             t = QGraphicsSimpleTextItem(label)
             t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
@@ -672,41 +718,76 @@ class ParkingLotUI(QWidget):
         t.setPos(p.x()-20,p.y()+25)
         t.setParentItem(self.layer_static)
 
+    def add_parking_slot_dividers(self):
+        """통합된 주차구역 내에서 개별 주차칸을 구분하는 선들을 그리는 함수"""
+        divider_color = QColor(255, 255, 255)  # 흰색
+        divider_width = 10
+        
+        # 하단 주차 구역들 (y=1600~2000) 내부 구분선들 - 모든 경계선
+        divider_positions = [300, 600, 800, 1000, 1200, 1400]  # 모든 주차칸 사이
+        for x in divider_positions:
+            divider = QGraphicsRectItem(QRectF(x - 5, 1600, 10, 400))
+            divider.setBrush(QBrush(divider_color))
+            divider.setPen(QPen(Qt.NoPen))
+            divider.setParentItem(self.layer_static)
+        
+        # 중간 주차 구역들 (400~1600, y=400~800) 내부 구분선들
+        middle_positions = [600, 800, 1000, 1200, 1400]  # 6개 칸을 나누는 5개 선
+        for x in middle_positions:
+            divider = QGraphicsRectItem(QRectF(x - 5, 400, 10, 400))
+            divider.setBrush(QBrush(divider_color))
+            divider.setPen(QPen(Qt.NoPen))
+            divider.setParentItem(self.layer_static)
+        
+        # 우측 주차 구역들 (1600~2000, y=800~1600) 내부 구분선들
+        right_positions = [1000, 1200, 1400]  # 4개 칸을 나누는 3개 선
+        for y in right_positions:
+            divider = QGraphicsRectItem(QRectF(1600, y - 5, 400, 10))
+            divider.setBrush(QBrush(divider_color))
+            divider.setPen(QPen(Qt.NoPen))
+            divider.setParentItem(self.layer_static)
+
     def build_static_layout(self):
-        # 색상 변경: 3. 내부 배경(빈기둥) → 회색, 4. 입출차 구역 → 내부 배경과 동일한 회색
-        c_dis = QColor(135, 206, 250)  # 1. 장애인 → 하늘색
-        c_ele = QColor(0, 200, 130)    # 전기차 (기존 유지)
-        c_gen = QColor(150, 150, 150)  # 2. 일반 → 회색
-        c_obs = QColor(108, 117, 125)  # 장애물 색상은 add_hatched에서 처리
-        c_emp = QColor(120, 120, 120)  # 3. 빈기둥 → 회색
-        c_io = QColor(120, 120, 120)   # 4. 입출차 → 내부 배경과 동일한 회색
+        # 색상 정의
+        c_dis = QColor(135, 206, 250)  # 장애인 → 하늘색
+        c_ele = QColor(0, 200, 130)    # 전기차
+        c_gen = QColor(150, 150, 150)  # 일반 → 회색
+        c_obs = QColor(108, 117, 125)  # 장애물
+        c_emp = QColor(120, 120, 120)  # 빈기둥 → 회색
+        c_io = QColor(120, 120, 120)   # 입출차 → 회색
         
         border = QGraphicsRectItem(0, 0, self.SCENE_W, self.SCENE_H)
         border.setPen(QPen(QColor(0, 170, 210), 12))
         border.setBrush(QBrush(Qt.NoBrush))
         border.setParentItem(self.layer_static)
         
-        base = [
-            (0, 1600, 300, 400, c_dis, "장애인"), 
-            (300, 1600, 300, 400, c_dis, "장애인"), 
-            (600, 1600, 200, 400, c_gen, "일반"), 
-            (800, 1600, 200, 400, c_gen, "일반"), 
-            (1000, 1600, 200, 400, c_gen, "일반"), 
-            (1200, 1600, 200, 400, c_ele, "전기차"), 
-            (1400, 1600, 200, 400, c_ele, "전기차"), 
-            (1600, 1600, 400, 400, c_emp, "빈기둥"), 
-            (550, 1050, 800, 300, c_obs, "장애물"), 
-            (1600, 400, 400, 400, c_emp, "빈기둥"), 
-            (0, 0, 400, 400, c_io, "입출차")
-        ]
-        for x, y, w, h, c, l in base: 
-            self.add_block(x, y, w, h, c, l)
-        for i in range(6): 
-            self.add_block(400 + i * 200, 400, 200, 400, c_gen, "일반")
-        for i in range(4): 
-            self.add_block(1600, 800 + i * 200, 400, 200, c_gen, "일반")
+        # 하단 주차 구역들을 통합된 영역으로 생성
+        # 장애인 주차 구역 (0~600, 1600~2000)
+        self.add_unified_parking_area(0, 1600, 600, 400, c_dis, "장애인")
+        
+        # 일반 주차 구역 (600~1200, 1600~2000) 
+        self.add_unified_parking_area(600, 1600, 600, 400, c_gen, "일반")
+        
+        # 전기차 주차 구역 (1200~1600, 1600~2000)
+        self.add_unified_parking_area(1200, 1600, 400, 400, c_ele, "전기차")
+        
+        # 중간 주차 구역들을 하나의 통합된 일반 구역으로 (400~1600, 400~800)
+        self.add_unified_parking_area(400, 400, 1200, 400, c_gen, "일반")
+        
+        # 우측 주차 구역들을 하나의 통합된 일반 구역으로 (1600~2000, 800~1600)
+        self.add_unified_parking_area(1600, 800, 400, 800, c_gen, "일반")
+        
+        # 비 주차 구역들
+        self.add_block(1600, 1600, 400, 400, c_emp, "빈기둥")
+        self.add_block(550, 1050, 800, 300, c_obs, "장애물")
+        self.add_block(1600, 400, 400, 400, c_emp, "빈기둥")
+        self.add_block(0, 0, 400, 400, c_io, "입출차")
+        
         self.add_hatched(400, 0, 1600, 400)
         self.add_dot_label_static(self.ENTRANCE, "입구", QColor(0, 170, 210))
+        
+        # 개별 주차칸 구분선 추가
+        self.add_parking_slot_dividers()
 
     def build_occupancy(self):
         W, H, C = self.SCENE_W, self.SCENE_H, self.CELL
@@ -720,9 +801,7 @@ class ParkingLotUI(QWidget):
             for cy in range(cy0,cy1+1):
                 for cx in range(cx0,cx1+1):
                     if 0<=cx<gx and 0<=cy<gy: self.occ[cy*gx+cx] = 1
-        for x,y,w,h,c,l in [(550,1050,800,300,0,""),(400,0,1600,400,0,""),(1600,400,400,400,0,""),(1600,1600,400,400,0,""),(0,1600,300,400,0,""),(300,1600,300,400,0,""),(600,1600,200,400,0,""),(800,1600,200,400,0,""),(1000,1600,200,400,0,""),(1200,1600,200,400,0,""),(1400,1600,200,400,0,"")]: block_rect(x,y,w,h)
-        for i in range(6): block_rect(400+i*200,400,200,400)
-        for i in range(4): block_rect(1600,800+i*200,400,200)
+        for x,y,w,h,c,l in [(550,1050,800,300,0,""),(400,0,1600,400,0,""),(1600,400,400,400,0,""),(1600,1600,400,400,0,""),(0,1600,600,400,0,""),(600,1600,600,400,0,""),(1200,1600,400,400,0,""),(400,400,1200,400,0,""),(1600,800,400,800,0,"")]: block_rect(x,y,w,h)
         self._occ_idx = idx
 
     def clamp_point(self, p: QPointF): return QPointF(min(self.SCENE_W-1.,max(0.,p.x())), min(self.SCENE_H-1.,max(0.,p.y())))

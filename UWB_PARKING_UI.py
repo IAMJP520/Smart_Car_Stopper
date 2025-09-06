@@ -516,7 +516,7 @@ class ParkingLotUI(QWidget):
     def setup_styles(self):
         self.setStyleSheet(f"""
             QWidget {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {HYUNDAI_COLORS['background']}, stop:1 {HYUNDAI_COLORS['surface']}); color: {HYUNDAI_COLORS['text_primary']}; font-family: 'Malgun Gothic'; }}
-            QGraphicsView {{ border: 3px solid {HYUNDAI_COLORS['accent']}; border-radius: 15px; background: {HYUNDAI_COLORS['background']}; }}
+            QGraphicsView {{ border: 3px solid {HYUNDAI_COLORS['accent']}; border-radius: 15px; background: '#303030'; }}
         """)
 
     def init_ui(self):
@@ -618,9 +618,9 @@ class ParkingLotUI(QWidget):
 
     def add_block(self, x, y, w, h, color, label=""):
         r = QGraphicsRectItem(QRectF(x, y, w, h))
-        if "장애인" in label: gradient = QLinearGradient(x,y,x+w,y+h); gradient.setColorAt(0,QColor(255,180,0,200)); gradient.setColorAt(1,QColor(255,140,0,150)); r.setBrush(QBrush(gradient))
+        if "장애인" in label: gradient = QLinearGradient(x,y,x+w,y+h); gradient.setColorAt(0,QColor(135, 206, 250, 200)); gradient.setColorAt(1,QColor(70, 130, 180,150)); r.setBrush(QBrush(gradient))
         elif "전기차" in label: gradient = QLinearGradient(x,y,x+w,y+h); gradient.setColorAt(0,QColor(0,200,130,200)); gradient.setColorAt(1,QColor(0,150,100,150)); r.setBrush(QBrush(gradient))
-        elif "일반" in label: gradient = QLinearGradient(x,y,x+w,y+h); gradient.setColorAt(0,QColor(0,170,210,200)); gradient.setColorAt(1,QColor(0,44,95,150)); r.setBrush(QBrush(gradient))
+        elif "일반" in label: gradient = QLinearGradient(x,y,x+w,y+h); gradient.setColorAt(0,QColor("#303030")); gradient.setColorAt(1,QColor("#303030")); r.setBrush(QBrush(gradient))
         else: r.setBrush(QBrush(color))
         r.setPen(QPen(QColor(255,255,255,100),2)); r.setParentItem(self.layer_static)
         if label:
@@ -638,7 +638,7 @@ class ParkingLotUI(QWidget):
         font = QFont("Malgun Gothic", FONT_SIZES['map_io_label'], QFont.Bold); t.setFont(font); t.setPos(p.x()-20,p.y()+25); t.setParentItem(self.layer_static)
 
     def build_static_layout(self):
-        c_dis, c_ele, c_gen, c_obs, c_emp, c_io = QColor(255, 179, 0), QColor(0, 200, 130), QColor(0, 170, 210), QColor(108, 117, 125), QColor(206, 212, 218), QColor(231, 111, 81)
+        c_dis, c_ele, c_gen, c_obs, c_emp, c_io = QColor(135, 206, 250), QColor(0, 200, 130), QColor("#303030"), QColor(108, 117, 125), QColor(206, 212, 218), QColor("#303030")
         border = QGraphicsRectItem(0, 0, self.SCENE_W, self.SCENE_H); border.setPen(QPen(QColor(0, 170, 210), 12)); border.setBrush(QBrush(Qt.NoBrush)); border.setParentItem(self.layer_static)
         base = [(0, 1600, 300, 400, c_dis, "장애인"), (300, 1600, 300, 400, c_dis, "장애인"), (600, 1600, 200, 400, c_gen, "일반"), (800, 1600, 200, 400, c_gen, "일반"), (1000, 1600, 200, 400, c_gen, "일반"), (1200, 1600, 200, 400, c_ele, "전기차"), (1400, 1600, 200, 400, c_ele, "전기차"), (1600, 1600, 400, 400, c_emp, "빈기둥"), (550, 1050, 800, 300, c_obs, "장애물"), (1600, 400, 400, 400, c_emp, "빈기둥"), (0, 0, 400, 400, c_io, "입출차")]
         for x, y, w, h, c, l in base: self.add_block(x, y, w, h, c, l)
@@ -809,7 +809,7 @@ if __name__ == "__main__":
     font = QFont("Malgun Gothic"); font.setPointSize(10); app.setFont(font)
 
     app.setStyleSheet(f"""
-        QApplication {{ background-color: {HYUNDAI_COLORS['background']}; }}
+        QApplication {{ background-color: '#303030'; }}
         QMessageBox {{ background: {HYUNDAI_COLORS['surface']}; color: {HYUNDAI_COLORS['text_primary']}; border: 1px solid {HYUNDAI_COLORS['accent']}; border-radius: 10px; }}
         QMessageBox QPushButton {{ background: {HYUNDAI_COLORS['primary']}; border: 1px solid {HYUNDAI_COLORS['secondary']}; border-radius: 5px; color: white; padding: 8px 16px; min-width: 60px; font-size: {FONT_SIZES['msgbox_button']}pt; }}
     """)

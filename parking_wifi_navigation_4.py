@@ -398,6 +398,9 @@ class PremiumHudWidget(QFrame):
 # ===================================================================
 # 자동차 아이템: 간단한 자동차 정면 모양 스타일 (상하반전)
 # ===================================================================
+# ===================================================================
+# 자동차 아이템: 간단한 자동차 정면 모양 스타일 (상하반전)
+# ===================================================================
 class CarItem(QGraphicsObject):
     positionChanged = pyqtSignal(QPointF)
 
@@ -436,7 +439,7 @@ class CarItem(QGraphicsObject):
         painter.drawPolygon(self.car_cabin)
         painter.restore()
 
-        # ★ 변경: 차량 본체 레드 그라데이션 (밝은 레드 → 딥 레드)
+        # 차량 본체 레드 그라데이션 (밝은 레드 → 딥 레드)
         body_gradient = QLinearGradient(0, 15, 0, -45)
         body_gradient.setColorAt(0, QColor(220, 30, 30))   # 밝은 레드
         body_gradient.setColorAt(1, QColor(120, 0, 0))     # 딥 레드
@@ -476,14 +479,18 @@ class CarItem(QGraphicsObject):
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(self.grille, 3, 3)
         painter.setPen(QPen(QColor(100, 110, 120), 1.5))
-        painter.drawLine(self.grille.left(), self.grille.center().y(),
-                         self.grille.right(), self.grille.center().y())
+        
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        # ★ 변경된 부분: 좌표들을 int()로 감싸 정수로 변환 ★
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        painter.drawLine(int(self.grille.left()), int(self.grille.center().y()),
+                         int(self.grille.right()), int(self.grille.center().y()))
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.positionChanged.emit(value)
         return super().itemChange(change, value)
-
 
 # ===================================================================
 # 메인 UI: 현대차 스타일 주차장 지도 (WiFi 통합)
