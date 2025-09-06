@@ -82,7 +82,7 @@ class WaypointReceiver:
                     for chunk in data.strip().split('}{'):
                         if not chunk.startswith('{'): chunk = '{' + chunk
                         if not chunk.endswith('}'): chunk = chunk + '}'
-                       
+                        
                         message = json.loads(chunk)
                         self.process_waypoint_data(message)
                         response = {"status": "received", "timestamp": datetime.now().isoformat()}
@@ -99,7 +99,7 @@ class WaypointReceiver:
     def process_waypoint_data(self, data):
         """수신된 데이터 처리 (경로 또는 위치)"""
         msg_type = data.get('type')
-       
+        
         # 경로 할당 메시지 처리
         if msg_type == 'waypoint_assignment':
             waypoints = data.get('waypoints', [])
@@ -107,15 +107,15 @@ class WaypointReceiver:
             if self.waypoint_callback:
                 self.waypoint_callback(waypoints)
             print("=" * 50)
-           
+            
         # [수정] 실시간 위치 메시지 처리 - 송신 코드의 형식에 맞춤
         elif msg_type == 'real_time_position':
             x = data.get('x')
             y = data.get('y')
             tag_id = data.get('tag_id')
-           
+            
             print(f"📍 실시간 위치 수신 - Tag {tag_id}: ({x}, {y})")
-           
+            
             if x is not None and y is not None:
                 position = [float(x), float(y)]
                 if self.position_callback:
@@ -390,12 +390,6 @@ class PremiumHudWidget(QFrame):
         self.update()
 
 # ===================================================================
-# 자동차 아이템: 현대차 스타일
-# ===================================================================
-# ===================================================================
-# 자동차 아이템: 제공된 이미지의 파란색 차량 스타일
-# ===================================================================
-# ===================================================================
 # 자동차 아이템: 간단한 자동차 정면 모양 스타일 (상하반전)
 # ===================================================================
 class CarItem(QGraphicsObject):
@@ -443,12 +437,12 @@ class CarItem(QGraphicsObject):
         painter.drawPolygon(self.car_cabin)
         painter.restore()
 
-        # [수정] 차량 본체 그라데이션 방향 반전
+        # [수정] 차량 본체 그라데이션을 빨간색으로 변경
         body_gradient = QLinearGradient(0, 15, 0, -45)
-        body_gradient.setColorAt(0, QColor(HYUNDAI_COLORS['accent']))
-        body_gradient.setColorAt(1, QColor(HYUNDAI_COLORS['primary']))
+        body_gradient.setColorAt(0, QColor(220, 30, 30))  # 밝은 빨강
+        body_gradient.setColorAt(1, QColor(150, 20, 20))  # 어두운 빨강
         painter.setBrush(QBrush(body_gradient))
-        painter.setPen(QPen(QColor(200, 220, 255, 150), 2))
+        painter.setPen(QPen(QColor(255, 200, 200, 150), 2))
         painter.drawPolygon(self.car_body)
 
         # [수정] 차량 지붕 및 유리창 그라데이션 방향 반전
@@ -483,17 +477,13 @@ class CarItem(QGraphicsObject):
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(self.grille, 3, 3)
         painter.setPen(QPen(QColor(100, 110, 120), 1.5))
-        painter.drawLine(self.grille.left(), self.grille.center().y(), self.grille.right(), self.grille.center().y())
-
+        painter.drawLine(int(self.grille.left()), int(self.grille.center().y()), int(self.grille.right()), int(self.grille.center().y()))
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.positionChanged.emit(value)
         return super().itemChange(change, value)
 
-# ===================================================================
-# 메인 UI: 현대차 스타일 주차장 지도 (WiFi 통합)
-# ===================================================================
 # ===================================================================
 # 메인 UI: 현대차 스타일 주차장 지도 (WiFi 통합)
 # ===================================================================
@@ -552,6 +542,7 @@ class ParkingLotUI(QWidget):
     def init_wifi(self):
         self.newWaypointsReceived.connect(self.update_ui_with_waypoints)
         self.carPositionReceived.connect(self.update_car_position_from_wifi)
+
         self.waypoint_receiver = WaypointReceiver()
         self.waypoint_receiver.set_waypoint_callback(self.handle_new_waypoints_from_thread)
         self.waypoint_receiver.set_position_callback(self.handle_new_position_from_thread)
@@ -573,6 +564,7 @@ class ParkingLotUI(QWidget):
         self.calculate_and_display_route()
 
     def update_car_position_from_wifi(self, position: List[float]):
+        """[x, y] 좌표를 받아 차량의 위치를 업데이트합니다."""
         if not (isinstance(position, list) and len(position) == 2):
             return
         new_pos = QPointF(position[0], position[1])
@@ -581,20 +573,26 @@ class ParkingLotUI(QWidget):
     def calculate_and_display_route(self):
         if not self.received_waypoints:
             QMessageBox.warning(self, "경로 오류", "경로를 계산할 웨이포인트가 없습니다."); return
+
         start_point = self.car.pos() if self.car.isVisible() else self.ENTRANCE
         waypoints_qpoints = [self.clamp_point(QPointF(p[0], p[1])) for p in self.received_waypoints]
         self.snapped_waypoints = [self.find_nearest_free_cell_from_point(p) for p in waypoints_qpoints]
+        
         segments, prev = [], start_point
         for goal in self.snapped_waypoints:
             c = self.astar(prev, goal)
             if not c: QMessageBox.warning(self, "경로 실패", f"경로를 찾을 수 없습니다: {prev.x():.0f},{prev.y():.0f} -> {goal.x():.0f},{goal.y():.0f}"); return
             segments.append(c); prev = goal
+        
         whole = [c for i, seg in enumerate(segments) for c in (seg if i == 0 else seg[1:])]
         self.full_path_points = [self.cell_to_pt_center(c) for c in self.simplify_cells(whole)]
         if not self.full_path_points: return
+
         self.full_path_points[0], self.full_path_points[-1] = start_point, self.snapped_waypoints[-1]
+        
         self.clear_path_layer()
         self.draw_straight_path(self.full_path_points)
+        
         self.current_path_segment_index = 0
         if not self.car.isVisible():
             self.car.setPos(start_point)
@@ -611,18 +609,48 @@ class ParkingLotUI(QWidget):
         self.waypoint_receiver.stop()
         super().closeEvent(event)
 
-    # ★ 변경점 1: add_block 함수에서 테두리 그리기(setPen) 제거
     def add_block(self, x, y, w, h, color, label=""):
         r = QGraphicsRectItem(QRectF(x, y, w, h))
-        if "장애인" in label: gradient = QLinearGradient(x,y,x+w,y+h); gradient.setColorAt(0,QColor(135, 206, 250, 200)); gradient.setColorAt(1,QColor(70, 130, 180,150)); r.setBrush(QBrush(gradient))
-        elif "전기차" in label: gradient = QLinearGradient(x,y,x+w,y+h); gradient.setColorAt(0,QColor(0,200,130,200)); gradient.setColorAt(1,QColor(0,150,100,150)); r.setBrush(QBrush(gradient))
-        elif "일반" in label: gradient = QLinearGradient(x,y,x+w,y+h); gradient.setColorAt(0,QColor("#303030")); gradient.setColorAt(1,QColor("#303030")); r.setBrush(QBrush(gradient))
-        else: r.setBrush(QBrush(color))
-        r.setPen(Qt.NoPen) # ★ 테두리를 그리지 않음
+        
+        # 브러시(채우기) 설정
+        if "장애인" in label:
+            gradient = QLinearGradient(x,y,x+w,y+h)
+            gradient.setColorAt(0,QColor(135, 206, 250, 200))
+            gradient.setColorAt(1,QColor(70, 130, 180,150))
+            r.setBrush(QBrush(gradient))
+        elif "전기차" in label:
+            gradient = QLinearGradient(x,y,x+w,y+h)
+            gradient.setColorAt(0,QColor(0,200,130,200))
+            gradient.setColorAt(1,QColor(0,150,100,150))
+            r.setBrush(QBrush(gradient))
+        elif "일반" in label:
+            gradient = QLinearGradient(x,y,x+w,y+h)
+            gradient.setColorAt(0,QColor("#303030"))
+            gradient.setColorAt(1,QColor("#303030"))
+            r.setBrush(QBrush(gradient))
+        else:
+            r.setBrush(QBrush(color))
+            
+        # 펜(테두리) 설정 - 요청사항 반영
+        if "장애인" in label or "전기차" in label or "일반" in label:
+            # 1~17번 주차 구역에 해당하는 경우: 흰색, 10픽셀 테두리
+            pen = QPen(QColor("white"), 10)
+            r.setPen(pen)
+        else:
+            # 그 외의 블록(장애물, 입출차 구역 등)은 기존 테두리 유지
+            r.setPen(QPen(QColor(255,255,255,100), 2))
+
         r.setParentItem(self.layer_static)
+
+        # 라벨 설정
         if label:
-            t = QGraphicsSimpleTextItem(label); t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True); t.setBrush(QColor(255,255,255))
-            font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold); t.setFont(font); t.setPos(x+5,y+h-25); t.setParentItem(self.layer_static)
+            t = QGraphicsSimpleTextItem(label)
+            t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+            t.setBrush(QColor(255,255,255))
+            font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
+            t.setFont(font)
+            t.setPos(x+5,y+h-25)
+            t.setParentItem(self.layer_static)
 
     def add_hatched(self, x, y, w, h, edge=QColor("black"), fill=QColor(220, 20, 60, 90)):
         r = QGraphicsRectItem(QRectF(x,y,w,h)); b = QBrush(fill); b.setStyle(Qt.BDiagPattern); r.setBrush(b); r.setPen(QPen(edge,3)); r.setParentItem(self.layer_static)
@@ -634,61 +662,175 @@ class ParkingLotUI(QWidget):
         t = QGraphicsSimpleTextItem(text); t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True); t.setBrush(QColor(0,200,255))
         font = QFont("Malgun Gothic", FONT_SIZES['map_io_label'], QFont.Bold); t.setFont(font); t.setPos(p.x()-20,p.y()+25); t.setParentItem(self.layer_static)
 
-    # ★ 변경점 2: build_static_layout 함수에서 모든 주차선을 한 번에 그림
     def build_static_layout(self):
         c_dis, c_ele, c_gen, c_obs, c_emp, c_io = QColor(135, 206, 250), QColor(0, 200, 130), QColor("#303030"), QColor(108, 117, 125), QColor(206, 212, 218), QColor("#303030")
-        
-        # 1. 모든 블록의 배경색과 라벨을 먼저 그림
+        border = QGraphicsRectItem(0, 0, self.SCENE_W, self.SCENE_H); border.setPen(QPen(QColor(0, 170, 210), 12)); border.setBrush(QBrush(Qt.NoBrush)); border.setParentItem(self.layer_static)
         base = [(0, 1600, 300, 400, c_dis, "장애인"), (300, 1600, 300, 400, c_dis, "장애인"), (600, 1600, 200, 400, c_gen, "일반"), (800, 1600, 200, 400, c_gen, "일반"), (1000, 1600, 200, 400, c_gen, "일반"), (1200, 1600, 200, 400, c_ele, "전기차"), (1400, 1600, 200, 400, c_ele, "전기차"), (1600, 1600, 400, 400, c_emp, "101"), (550, 1050, 800, 300, c_obs, "장애물"), (1600, 400, 400, 400, c_emp, "102"), (0, 0, 400, 400, c_io, "입출차")]
         for x, y, w, h, c, l in base: self.add_block(x, y, w, h, c, l)
         for i in range(6): self.add_block(400 + i * 200, 400, 200, 400, c_gen, "일반")
         for i in range(4): self.add_block(1600, 800 + i * 200, 400, 200, c_gen, "일반")
-        
-        # 2. 모든 주차선을 QPainterPath를 이용해 하나의 객체로 묶어 그림
-        parking_lines_path = QPainterPath()
-
-        # 상단 주차 구역 라인 (y=1600~2000)
-        parking_lines_path.addRect(QRectF(0, 1600, 1600, 400)) # 바깥 테두리
-        for x_div in [300, 600, 800, 1000, 1200, 1400]: # 내부 세로선
-            parking_lines_path.moveTo(x_div, 1600)
-            parking_lines_path.lineTo(x_div, 2000)
-
-        # 중간 주차 구역 라인 (y=400~800)
-        parking_lines_path.addRect(QRectF(400, 400, 1200, 400)) # 바깥 테두리
-        for i in range(1, 6): # 내부 세로선
-            x_div = 400 + i * 200
-            parking_lines_path.moveTo(x_div, 400)
-            parking_lines_path.lineTo(x_div, 800)
-            
-        # 우측 주차 구역 라인 (x=1600~2000)
-        parking_lines_path.addRect(QRectF(1600, 800, 400, 800)) # 바깥 테두리
-        for i in range(1, 4): # 내부 가로선
-            y_div = 800 + i * 200
-            parking_lines_path.moveTo(1600, y_div)
-            parking_lines_path.lineTo(2000, y_div)
-            
-        # QPainterPath를 씬에 추가
-        from PyQt5.QtWidgets import QGraphicsPathItem
-        lines_item = QGraphicsPathItem(parking_lines_path)
-        pen = QPen(QColor(255, 255, 255, 200), 10) # 10픽셀 두께의 흰색 선
-        pen.setJoinStyle(Qt.MiterJoin) # 모서리를 각지게 처리
-        lines_item.setPen(pen)
-        lines_item.setParentItem(self.layer_static)
-
-        # 3. 기타 요소들
         self.add_hatched(400, 0, 1600, 400)
         self.add_dot_label_static(self.ENTRANCE, "입구", QColor(0, 170, 210))
 
-    # (이하 나머지 모든 함수는 이전과 동일)
-    # ...
+    def build_occupancy(self):
+        W, H, C = self.SCENE_W, self.SCENE_H, self.CELL; gx, gy = (W + C - 1) // C, (H + C - 1) // C
+        self.grid_w, self.grid_h = gx, gy; self.occ = bytearray(gx * gy)
+        def idx(cx, cy): return cy * gx + cx
+        def block_rect(x, y, w, h):
+            x0,y0,x1,y1 = max(0,x-self.MARGIN), max(0,y-self.MARGIN), min(W,x+w+self.MARGIN), min(H,y+h+self.MARGIN)
+            cx0,cy0,cx1,cy1 = int(x0//C), int(y0//C), int((x1-1)//C), int((y1-1)//C)
+            for cy in range(cy0,cy1+1):
+                for cx in range(cx0,cx1+1):
+                    if 0<=cx<gx and 0<=cy<gy: self.occ[cy*gx+cx] = 1
+        for x,y,w,h,c,l in [(550,1050,800,300,0,""),(400,0,1600,400,0,""),(1600,400,400,400,0,""),(1600,1600,400,400,0,""),(0,1600,300,400,0,""),(300,1600,300,400,0,""),(600,1600,200,400,0,""),(800,1600,200,400,0,""),(1000,1600,200,400,0,""),(1200,1600,200,400,0,""),(1400,1600,200,400,0,"")]: block_rect(x,y,w,h)
+        for i in range(6): block_rect(400+i*200,400,200,400)
+        for i in range(4): block_rect(1600,800+i*200,400,200)
+        self._occ_idx = idx
+
+    def clamp_point(self, p: QPointF): return QPointF(min(self.SCENE_W-1.,max(0.,p.x())), min(self.SCENE_H-1.,max(0.,p.y())))
+    def pt_to_cell(self, p: QPointF): return int(p.x()//self.CELL), int(p.y()//self.CELL)
+    def cell_to_pt_center(self, c): return QPointF(c[0]*self.CELL+self.CELL/2., c[1]*self.CELL+self.CELL/2.)
+    def is_cell_free(self, cx, cy): return 0<=cx<self.grid_w and 0<=cy<self.grid_h and self.occ[self._occ_idx(cx,cy)]==0
+    
+    def find_nearest_free_cell_from_point(self, p: QPointF, max_radius_cells=30):
+        sx, sy = self.pt_to_cell(p)
+        if self.is_cell_free(sx, sy): return self.cell_to_pt_center((sx, sy))
+        for r in range(1, max_radius_cells + 1):
+            for dx in range(-r, r+1):
+                for dy in [-r, r]:
+                    if self.is_cell_free(sx+dx, sy+dy): return self.cell_to_pt_center((sx+dx, sy+dy))
+            for dy in range(-r+1, r):
+                for dx in [-r, r]:
+                    if self.is_cell_free(sx+dx, sy+dy): return self.cell_to_pt_center((sx+dx, sy+dy))
+        return self.cell_to_pt_center((sx, sy))
+
+    def astar(self, start_pt: QPointF, goal_pt: QPointF):
+        sx, sy = self.pt_to_cell(start_pt)
+        gx, gy = self.pt_to_cell(goal_pt)
+        W, H = self.grid_w, self.grid_h
+        occ, idx = self.occ, self._occ_idx
+        if not (0 <= sx < W and 0 <= sy < H and 0 <= gx < W and 0 <= gy < H) or occ[idx(sx, sy)] or occ[idx(gx, gy)]:
+            return None
+        
+        openh = [(abs(sx - gx) + abs(sy - gy), 0, (sx, sy))]
+        came, g = {}, {(sx, sy): 0}
+        
+        while openh:
+            _, gc, (x, y) = heappop(openh)
+            
+            if (x, y) == (gx, gy):
+                path = []
+                curr = (x, y)
+                while curr in came:
+                    path.append(curr)
+                    curr = came[curr]
+                path.append((sx, sy))
+                path.reverse()
+                return path
+            
+            for dx, dy, cst in [(1, 0, 1), (-1, 0, 1), (0, 1, 1), (0, -1, 1)]:
+                nx, ny = x + dx, y + dy
+                
+                if not (0 <= nx < W and 0 <= ny < H) or occ[idx(nx, ny)]:
+                    continue
+                
+                ng = gc + cst
+                
+                if (nx, ny) not in g or ng < g[(nx, ny)]:
+                    g[(nx, ny)] = ng
+                    came[(nx, ny)] = (x, y)
+                    heappush(openh, (ng + abs(nx - gx) + abs(ny - gy), ng, (nx, ny)))
+                    
+        return None
+
+    def simplify_cells(self, cells):
+        if not cells: return []
+        simp = [cells[0]]
+        norm = lambda vx,vy: ((0 if vx==0 else (1 if vx>0 else -1)), (0 if vy==0 else (1 if vy>0 else -1)))
+        for i in range(1, len(cells)-1):
+            if norm(cells[i][0]-simp[-1][0], cells[i][1]-simp[-1][1]) != norm(cells[i+1][0]-cells[i][0], cells[i+1][1]-cells[i][1]): simp.append(cells[i])
+        if len(cells)>1 and cells[-1]!=simp[-1]: simp.append(cells[-1])
+        return simp
+
+    def draw_straight_path(self, pts):
+        if len(pts) < 2: return
+        for i in range(len(pts) - 1):
+            start, end = pts[i], pts[i + 1]
+            for width, alpha in [(self.PATH_WIDTH + 12, 60), (self.PATH_WIDTH + 6, 100)]:
+                glow_pen = QPen(QColor(0,170,210,alpha), width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+                self.scene.addLine(start.x(), start.y(), end.x(), end.y(), glow_pen).setParentItem(self.layer_path)
+            main_pen = QPen(QColor(0,200,255), self.PATH_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            self.scene.addLine(start.x(), start.y(), end.x(), end.y(), main_pen).setParentItem(self.layer_path)
+            center_pen = QPen(QColor(255,255,255,150), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            self.scene.addLine(start.x(), start.y(), end.x(), end.y(), center_pen).setParentItem(self.layer_path)
+
+    def generate_hud_instructions(self, pts):
+        if len(pts) < 2: return []
+        instructions, total_dist = [], 0
+        for i in range(len(pts) - 1):
+            p1, p2 = pts[i], pts[i+1]
+            dist_m = sqrt((p2.x()-p1.x())**2 + (p2.y()-p1.y())**2) / self.PIXELS_PER_METER
+            total_dist += dist_m
+            if i < len(pts) - 2:
+                p3 = pts[i+2]
+                angle = (degrees(atan2(p3.y()-p2.y(),p3.x()-p2.x()))-degrees(atan2(p2.y()-p1.y(),p2.x()-p1.x()))+180)%360-180
+                direction = "좌회전" if angle>45 else ("우회전" if angle<-45 else "")
+                if direction: instructions.append((direction, total_dist)); total_dist = 0
+        instructions.append(("목적지 도착", total_dist)); return instructions
+
+    def calculate_route_progress(self, car_pos):
+        if not self.full_path_points or len(self.full_path_points)<2: return 0
+        total_len = sum(sqrt((self.full_path_points[i+1].x()-p.x())**2 + (self.full_path_points[i+1].y()-p.y())**2) for i,p in enumerate(self.full_path_points[:-1]))
+        if total_len==0: return 0
+        min_dist, closest_seg, proj_ratio = float('inf'), 0, 0
+        for i,p1 in enumerate(self.full_path_points[:-1]):
+            p2 = self.full_path_points[i+1]; seg_vec, car_vec = p2-p1, car_pos-p1
+            seg_len_sq = QPointF.dotProduct(seg_vec, seg_vec)
+            if seg_len_sq==0: continue
+            t = max(0, min(1, QPointF.dotProduct(car_vec, seg_vec)/seg_len_sq))
+            proj = p1 + t * seg_vec
+            dist = sqrt((car_pos.x()-proj.x())**2 + (car_pos.y()-proj.y())**2)
+            if dist < min_dist: min_dist, closest_seg, proj_ratio = dist, i, t
+        traveled = sum(sqrt((self.full_path_points[i+1].x()-p.x())**2+(self.full_path_points[i+1].y()-p.y())**2) for i,p in enumerate(self.full_path_points[:closest_seg]))
+        if closest_seg < len(self.full_path_points)-1:
+            p1, p2 = self.full_path_points[closest_seg], self.full_path_points[closest_seg+1]
+            traveled += sqrt((p2.x()-p1.x())**2+(p2.y()-p1.y())**2) * proj_ratio
+        return min(100, (traveled / total_len) * 100)
+
+    def clear_path_layer(self):
+        for child in self.layer_path.childItems(): self.scene.removeItem(child)
+
+    def _update_current_segment(self, car_pos):
+        if not self.full_path_points or len(self.full_path_points)<2: return
+        while self.current_path_segment_index < len(self.full_path_points)-2:
+            p_curr, p_next, p_future = self.full_path_points[self.current_path_segment_index], self.full_path_points[self.current_path_segment_index+1], self.full_path_points[self.current_path_segment_index+2]
+            v_seg, v_car = p_next - p_curr, car_pos - p_curr
+            if QPointF.dotProduct(v_seg, v_seg)==0: self.current_path_segment_index+=1; continue
+            proj_ratio = QPointF.dotProduct(v_car, v_seg)/QPointF.dotProduct(v_seg, v_seg)
+            dist_to_next, dist_to_future = sqrt((car_pos.x()-p_next.x())**2+(car_pos.y()-p_next.y())**2), sqrt((car_pos.x()-p_future.x())**2+(car_pos.y()-p_future.y())**2)
+            if proj_ratio > 1 or dist_to_future < dist_to_next: self.current_path_segment_index+=1
+            else: break
+
+    def update_hud_from_car_position(self, car_pos):
+        if not self.full_path_points: return
+        self._update_current_segment(car_pos)
+        remaining_pts = self.full_path_points[self.current_path_segment_index+1:]
+        path_for_hud = [car_pos] + remaining_pts
+        if len(path_for_hud) < 2:
+            self.hud.update_navigation_info([("목적지 도착", 0)], current_speed=0, route_progress=100)
+            return
+        instructions = self.generate_hud_instructions(path_for_hud)
+        progress = self.calculate_route_progress(car_pos)
+        speed = min(60, int(progress*0.6+10))
+        self.hud.update_navigation_info(instructions, current_speed=speed, route_progress=progress)
 
 if __name__ == "__main__":
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
-   
+    
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
-   
+    
     font = QFont("Malgun Gothic"); font.setPointSize(10); app.setFont(font)
 
     app.setStyleSheet(f"""
@@ -696,7 +838,7 @@ if __name__ == "__main__":
         QMessageBox {{ background: {HYUNDAI_COLORS['surface']}; color: {HYUNDAI_COLORS['text_primary']}; border: 1px solid {HYUNDAI_COLORS['accent']}; border-radius: 10px; }}
         QMessageBox QPushButton {{ background: {HYUNDAI_COLORS['primary']}; border: 1px solid {HYUNDAI_COLORS['secondary']}; border-radius: 5px; color: white; padding: 8px 16px; min-width: 60px; font-size: {FONT_SIZES['msgbox_button']}pt; }}
     """)
-   
+    
     ui = ParkingLotUI()
     ui.showMaximized()
     sys.exit(app.exec_())
