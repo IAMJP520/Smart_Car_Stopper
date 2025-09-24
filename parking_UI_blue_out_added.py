@@ -188,6 +188,35 @@ class PremiumHudWidget(QFrame):
         self.direction_transition = 0.0
         self.target_direction = "직진"
         self.previous_direction = "직진"
+        
+        # 출차 시나리오 버튼 추가
+        self.exit_scenario_button = QPushButton("출차 시나리오 시작", self)
+        self.exit_scenario_button.setGeometry(50, 650, 350, 40)
+        self.exit_scenario_button.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ff6b6b,
+                    stop:1 #ee5a52);
+                border: 2px solid #ff8e8e;
+                border-radius: 20px;
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+                font-family: 'Malgun Gothic';
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ff5252,
+                    stop:1 #d32f2f);
+                border: 2px solid #ff6b6b;
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #d32f2f,
+                    stop:1 #b71c1c);
+            }
+        """)
+        self.exit_scenario_button.clicked.connect(self.start_exit_scenario)
 
     def init_particles(self):
         self.particle_positions = []
@@ -388,6 +417,56 @@ class PremiumHudWidget(QFrame):
         painter.drawArc(15,15,corner_size,corner_size,90*16,90*16); painter.drawArc(rect.width()-45,15,corner_size,corner_size,0*16,90*16)
         painter.drawArc(15,rect.height()-45,corner_size,corner_size,180*16,90*16); painter.drawArc(rect.width()-45,rect.height()-45,corner_size,corner_size,270*16,90*16)
         painter.restore()
+
+        self.update()
+
+    def start_exit_scenario(self):
+        """출차 시나리오 시작"""
+        print("🚗 출차 시나리오 시작!")
+        
+        # 현재 차량 위치 확인
+        if not hasattr(self.parent(), 'car') or not self.parent().car.isVisible():
+            QMessageBox.warning(self, "출차 오류", "차량이 주차장에 없습니다.")
+            return
+            
+        car_pos = self.parent().car.pos()
+        print(f"📍 현재 차량 위치: ({car_pos.x():.1f}, {car_pos.y():.1f})")
+        
+        # 주차구역별 출차 경로 계산
+        exit_waypoints = self.calculate_exit_route(car_pos)
+        
+        if exit_waypoints:
+            print(f"🗺️ 출차 경로 생성: {exit_waypoints}")
+            # 부모 클래스의 경로 계산 및 표시 함수 호출
+            self.parent().received_waypoints = exit_waypoints
+            self.parent().calculate_and_display_route()
+            
+            # 버튼 텍스트 변경
+            self.exit_scenario_button.setText("출차 경로 생성 완료")
+            self.exit_scenario_button.setEnabled(False)
+        else:
+            QMessageBox.warning(self, "출차 오류", "출차 경로를 생성할 수 없습니다.")
+
+    def calculate_exit_route(self, car_pos):
+        """차량 위치에 따른 출차 경로 계산"""
+        x, y = car_pos.x(), car_pos.y()
+        
+        # 주차구역별 필수 웨이포인트 매핑
+        if 0 <= x <= 300 and 1600 <= y <= 2000:  # 장애인 주차구역 1-2번
+            return [[1475, 1475], [1475, 925], [200, 925]]
+        elif 300 <= x <= 1200 and 1600 <= y <= 2000:  # 일반 주차구역 3-7번
+            return [[1475, 1475], [1475, 925], [200, 925]]
+        elif 1200 <= x <= 1600 and 1600 <= y <= 2000:  # 전기차 주차구역 8-11번
+            return [[1475, 925], [200, 925]]
+        elif 0 <= x <= 400 and 0 <= y <= 400:  # 입출차 구역 12-17번
+            return [[200, 925]]
+        elif 400 <= x <= 1600 and 400 <= y <= 800:  # 일반 주차구역 12-17번
+            return [[200, 925]]
+        elif 1600 <= x <= 2000 and 400 <= y <= 1600:  # 일반 주차구역 12-17번
+            return [[200, 925]]
+        else:
+            # 기본 출차 경로 (입구로)
+            return [[200, 200]]
 
     # PremiumHudWidget 클래스 내부
 
