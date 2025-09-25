@@ -1093,7 +1093,7 @@ class ParkingLotUI(QWidget):
         """차량 위치를 기반으로 주차 구역 번호 감지"""
         x, y = car_pos.x(), car_pos.y()
         
-        # 주차 구역별 좌표 범위 정의
+        # 주차 구역별 좌표 범위 정의 (업데이트된 번호)
         parking_spots = {
             1: (0, 1600, 300, 400),      # 장애인 구역 1
             2: (300, 1600, 300, 400),    # 장애인 구역 2
@@ -1102,16 +1102,16 @@ class ParkingLotUI(QWidget):
             5: (1000, 1600, 200, 400),   # 일반 구역 5
             6: (1200, 1600, 200, 400),   # 전기차 구역 6
             7: (1400, 1600, 200, 400),   # 전기차 구역 7
-            8: (400, 400, 200, 400),     # 일반 구역 8
-            9: (600, 400, 200, 400),     # 일반 구역 9
-            10: (800, 400, 200, 400),    # 일반 구역 10
-            11: (1000, 400, 200, 400),   # 일반 구역 11
-            12: (1200, 400, 200, 400),   # 일반 구역 12
-            13: (1400, 400, 200, 400),   # 일반 구역 13
-            14: (1600, 800, 400, 200),    # 일반 구역 14
-            15: (1600, 1000, 400, 200),   # 일반 구역 15
-            16: (1600, 1200, 400, 200),   # 일반 구역 16
-            17: (1600, 1400, 400, 200),   # 일반 구역 17
+            8: (1600, 1400, 400, 200),   # 일반 구역 8
+            9: (1600, 1200, 400, 200),   # 일반 구역 9
+            10: (1600, 1000, 400, 200),  # 일반 구역 10
+            11: (1600, 800, 400, 200),   # 일반 구역 11
+            12: (1400, 400, 200, 400),   # 일반 구역 12
+            13: (1200, 400, 200, 400),   # 일반 구역 13
+            14: (1000, 400, 200, 400),   # 일반 구역 14
+            15: (800, 400, 200, 400),    # 일반 구역 15
+            16: (600, 400, 200, 400),    # 일반 구역 16
+            17: (400, 400, 200, 400),    # 일반 구역 17
         }
         
         for spot_num, (spot_x, spot_y, spot_w, spot_h) in parking_spots.items():
@@ -1123,59 +1123,73 @@ class ParkingLotUI(QWidget):
     def generate_exit_waypoints(self, parking_spot):
         """주차 구역에 따른 출차 웨이포인트 생성"""
         if parking_spot in [1, 2, 3, 4, 5, 6, 7]:
-            # 1~7번: (1475,1475) -> (1475,925) -> (200,925)
+            # 1~7번: 핀포인트 → (1475,1475) → (1475,925) → (200,925) → (200,200)
             return [
-                [1475, 1475],
-                [1475, 925],
-                [200, 925]
+                [1475, 1475],  # 1번 필수 웨이포인트
+                [1475, 925],   # 2번 필수 웨이포인트
+                [200, 925],    # 중간 웨이포인트
+                [200, 200]     # 최종 목적지 (입구)
             ]
         elif parking_spot in [8, 9, 10, 11]:
-            # 8~11번: (1475,925) -> (200,925)
+            # 8~11번: 핀포인트 → (1475,925) → (200,925) → (200,200)
             return [
-                [1475, 925],
-                [200, 925]
+                [1475, 925],   # 2번 필수 웨이포인트
+                [200, 925],    # 중간 웨이포인트
+                [200, 200]     # 최종 목적지 (입구)
             ]
         elif parking_spot in [12, 13, 14, 15, 16, 17]:
-            # 12~17번: (200,925)
+            # 12~17번: 핀포인트 → (200,925) → (200,200)
             return [
-                [200, 925]
+                [200, 925],    # 중간 웨이포인트
+                [200, 200]     # 최종 목적지 (입구)
             ]
         
         return None
 
     def get_parking_spot_start_waypoint(self, parking_spot):
-        """주차구역별 시작 웨이포인트 반환"""
-        if parking_spot in [1, 2, 3, 4, 5, 6, 7]:
-            # 1~7번: (1475,1475)에서 시작
-            return [1475, 1475]
-        elif parking_spot in [8, 9, 10, 11]:
-            # 8~11번: (1475,925)에서 시작
-            return [1475, 925]
-        elif parking_spot in [12, 13, 14, 15, 16, 17]:
-            # 12~17번: (200,925)에서 시작
-            return [200, 925]
+        """주차구역별 시작 웨이포인트 반환 - 각 주차구역의 핀포인트에서 시작"""
+        # 각 주차구역의 핀포인트 위치 (중심점)
+        parking_pinpoints = {
+            1: (150, 1475),    # 장애인 구역 1
+            2: (450, 1475),    # 장애인 구역 2
+            3: (700, 1475),    # 일반 구역 3
+            4: (900, 1475),    # 일반 구역 4
+            5: (1100, 1475),   # 일반 구역 5
+            6: (1300, 1475),   # 전기차 구역 6
+            7: (1475, 1475),   # 전기차 구역 7
+            8: (1475, 1475),   # 일반 구역 8
+            9: (1475, 1300),   # 일반 구역 9
+            10: (1475, 1100),  # 일반 구역 10
+            11: (1475, 925),   # 일반 구역 11
+            12: (1475, 925),   # 일반 구역 12
+            13: (1300, 925),   # 일반 구역 13
+            14: (1100, 925),   # 일반 구역 14
+            15: (900, 925),    # 일반 구역 15
+            16: (700, 925),    # 일반 구역 16
+            17: (500, 925),    # 일반 구역 17
+        }
+        
+        if parking_spot in parking_pinpoints:
+            x, y = parking_pinpoints[parking_spot]
+            return [x, y]
         
         return None
 
     def calculate_and_display_exit_route(self, exit_waypoints, parking_spot):
-        """출차 경로 계산 및 표시"""
-        # 차량의 현재 위치에서 시작
-        car_pos = self.car.pos()
-        
-        # 주차구역별 배정 웨이포인트 가져오기
+        """출차 경로 계산 및 표시 - 각 주차구역 핀포인트부터 시작"""
+        # 주차구역별 핀포인트에서 시작
         assigned_waypoint = self.get_parking_spot_start_waypoint(parking_spot)
         if not assigned_waypoint:
             QMessageBox.warning(self, "출차 경로 실패", "배정 웨이포인트를 찾을 수 없습니다.")
             return
         
-        # 전체 경로 구성: 차량 위치 → 배정 웨이포인트 → 최종 목적지들
-        all_waypoints = [assigned_waypoint] + exit_waypoints
+        start_point = QPointF(assigned_waypoint[0], assigned_waypoint[1])
         
-        # 차량 위치를 첫 번째 포인트로 추가
-        waypoints_qpoints = [car_pos] + [self.clamp_point(QPointF(p[0], p[1])) for p in all_waypoints]
+        # 전체 경로 구성: 핀포인트 → 웨이포인트들
+        waypoints_qpoints = [start_point] + [self.clamp_point(QPointF(p[0], p[1])) for p in exit_waypoints]
         self.snapped_waypoints = [self.find_nearest_free_cell_from_point(p) for p in waypoints_qpoints]
         
-        segments, prev = [], car_pos
+        segments, prev = [], start_point
         for goal in self.snapped_waypoints:
             c = self.astar(prev, goal)
             if not c: 
@@ -1190,7 +1204,7 @@ class ParkingLotUI(QWidget):
             return
 
         # 시작점과 끝점 설정
-        self.full_path_points[0] = car_pos
+        self.full_path_points[0] = start_point
         self.full_path_points[-1] = self.snapped_waypoints[-1]
         
         # 기존 경로 클리어 후 출차 경로 그리기
