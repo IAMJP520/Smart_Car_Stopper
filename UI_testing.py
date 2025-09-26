@@ -235,6 +235,7 @@ class PremiumHudWidget(QFrame):
         # 부모 위젯(ParkingLotUI)의 출차 시나리오 메서드 호출
         if hasattr(self.parent(), 'start_exit_scenario'):
             self.parent().start_exit_scenario()
+
     def init_particles(self):
         self.particle_positions = []
         for _ in range(8):  # 파티클 수 줄임
@@ -1060,71 +1061,57 @@ class ParkingLotUI(QWidget):
         self.hud.update_navigation_info(instructions, current_speed=speed, route_progress=progress)
 
     def start_exit_scenario(self):
-        """출차 시나리오 시작 - 자동 주차구역 감지"""
+        """출차 시나리오 시작 - 시계방향으로 출차 경로 생성"""
         if not self.car.isVisible():
-            QMessageBox.warning(self, "출차 오류", "차량이 지도에 표시되지 않았습니다. 외부 서버에서 차량 위치를 전송해주세요.")
+            QMessageBox.warning(self, "출차 오류", "차량이 지도에 표시되지 않았습니다. 먼저 경로를 설정해주세요.")
             return
         
         car_pos = self.car.pos()
-        detected_spot = self.detect_parking_spot(car_pos)
+        parking_spot = self.detect_parking_spot(car_pos)
         
-        if detected_spot is None:
+        if parking_spot is None:
             QMessageBox.warning(self, "출차 오류", "현재 위치에서 주차 구역을 찾을 수 없습니다.")
             return
         
-        exit_waypoints = self.generate_exit_waypoints(detected_spot)
+        exit_waypoints = self.generate_exit_waypoints(parking_spot)
         if not exit_waypoints:
             QMessageBox.warning(self, "출차 오류", "출차 경로를 생성할 수 없습니다.")
             return
         
         # 출차 시나리오 상태 설정
         self.is_exit_scenario = True
-        self.selected_parking_spot = detected_spot
         
         # 기존 경로 클리어
         self.clear_path_layer()
         
         # 출차 경로 계산 및 표시
-        self.calculate_and_display_exit_route(exit_waypoints, detected_spot)
+        self.calculate_and_display_exit_route(exit_waypoints, parking_spot)
         
-        # 출차 시나리오 정보 메시지
-        scenario_info = f"주차 구역 {detected_spot}번 출차 시나리오 시작\n\n"
-        scenario_info += f"출차 경로:\n"
-        for i, waypoint in enumerate(exit_waypoints):
-            scenario_info += f"  {i+1}. ({waypoint[0]}, {waypoint[1]})\n"
-        scenario_info += f"  {len(exit_waypoints)+1}. (200, 200) - 출구\n\n"
-        scenario_info += "외부 서버에서 차량을 시계방향으로 안전하게 출차시켜주세요."
-        
-        QMessageBox.information(self, "출차 시나리오", scenario_info)
+        QMessageBox.information(self, "출차 시나리오", f"주차 구역 {parking_spot}번에서 출차 경로를 시작합니다.\n시계방향으로 안전하게 출차하세요.")
 
     def detect_parking_spot(self, car_pos):
-        """차량 위치를 기반으로 주차 구역 번호 감지 - 수정된 좌표 기반"""
+        """차량 위치를 기반으로 주차 구역 번호 감지"""
         x, y = car_pos.x(), car_pos.y()
         
-        # 수정된 주차구역별 박스 좌표 정의
+        # 주차 구역별 좌표 범위 정의 (업데이트된 번호)
         parking_spots = {
-            # 1~7번 주차구역 (상단 주차구역)
-            1: (0, 1600, 300, 400),      # 장애인 구역
-            2: (300, 1600, 300, 400),   # 장애인 구역
-            3: (600, 1600, 200, 400),   # 일반 구역
-            4: (800, 1600, 200, 400),   # 일반 구역
-            5: (1000, 1600, 200, 400),  # 일반 구역
-            6: (1200, 1600, 200, 400),  # 전기차 구역
-            7: (1400, 1600, 200, 400),  # 전기차 구역
-            
-            # 8~11번 주차구역 (중간 주차구역)
-            8: (1600, 1400, 400, 200),  # 일반 구역
-            9: (1600, 1200, 400, 200),  # 일반 구역
-            10: (1600, 1000, 400, 200), # 일반 구역
-            11: (1600, 800, 400, 200),  # 일반 구역
-            
-            # 12~17번 주차구역 (우측 주차구역)
-            12: (1400, 400, 200, 400),  # 일반 구역
-            13: (1200, 400, 200, 400),  # 일반 구역
-            14: (1000, 400, 200, 400),  # 일반 구역
-            15: (800, 400, 200, 400),   # 일반 구역
-            16: (600, 400, 200, 400),   # 일반 구역
-            17: (400, 400, 200, 400),   # 일반 구역
+            1: (0, 1600, 300, 400),      # 장애인 구역 1
+            2: (300, 1600, 300, 400),    # 장애인 구역 2
+            3: (600, 1600, 200, 400),    # 일반 구역 3
+            4: (800, 1600, 200, 400),    # 일반 구역 4
+            5: (1000, 1600, 200, 400),   # 일반 구역 5
+            6: (1200, 1600, 200, 400),   # 전기차 구역 6
+            7: (1400, 1600, 200, 400),   # 전기차 구역 7
+            8: (1600, 1400, 400, 200),   # 일반 구역 8
+            9: (1600, 1200, 400, 200),   # 일반 구역 9
+            10: (1600, 1000, 400, 200),  # 일반 구역 10
+            11: (1600, 800, 400, 200),   # 일반 구역 11
+            12: (1400, 400, 200, 400),   # 일반 구역 12
+            13: (1200, 400, 200, 400),   # 일반 구역 13
+            14: (1000, 400, 200, 400),   # 일반 구역 14
+            15: (800, 400, 200, 400),    # 일반 구역 15
+            16: (600, 400, 200, 400),    # 일반 구역 16
+            17: (400, 400, 200, 400),    # 일반 구역 17
         }
         
         for spot_num, (spot_x, spot_y, spot_w, spot_h) in parking_spots.items():
@@ -1134,90 +1121,76 @@ class ParkingLotUI(QWidget):
         return None
 
     def generate_exit_waypoints(self, parking_spot):
-        """주차 구역에 따른 출차 웨이포인트 생성 - 수정된 경로"""
+        """주차 구역에 따른 출차 웨이포인트 생성"""
         if parking_spot in [1, 2, 3, 4, 5, 6, 7]:
             # 1~7번: 핀포인트 → (1475,1475) → (1475,925) → (200,925) → (200,200)
             return [
-                [1475, 1475],
-                [1475, 925],
-                [200, 925],
-                [200, 200]
+                [1475, 1475],  # 1번 필수 웨이포인트
+                [1475, 925],   # 2번 필수 웨이포인트
+                [200, 925],    # 중간 웨이포인트
+                [200, 200]     # 최종 목적지 (입구)
             ]
         elif parking_spot in [8, 9, 10, 11]:
             # 8~11번: 핀포인트 → (1475,925) → (200,925) → (200,200)
             return [
-                [1475, 925],
-                [200, 925],
-                [200, 200]
+                [1475, 925],   # 2번 필수 웨이포인트
+                [200, 925],    # 중간 웨이포인트
+                [200, 200]     # 최종 목적지 (입구)
             ]
         elif parking_spot in [12, 13, 14, 15, 16, 17]:
             # 12~17번: 핀포인트 → (200,925) → (200,200)
             return [
-                [200, 925],
-                [200, 200]
+                [200, 925],    # 중간 웨이포인트
+                [200, 200]     # 최종 목적지 (입구)
             ]
         
         return None
 
     def get_parking_spot_start_waypoint(self, parking_spot):
-        """주차구역별 시작 웨이포인트 반환 - 수정된 핀포인트 좌표"""
+        """주차구역별 시작 웨이포인트 반환 - 각 주차구역의 핀포인트에서 시작"""
+        # 각 주차구역의 핀포인트 위치 (중심점)
         parking_pinpoints = {
-            # 1~7번 주차구역 (상단 주차구역)
-            1: [150, 1475],   # 핀포인트
-            2: [450, 1475],   # 핀포인트
-            3: [700, 1475],  # 핀포인트
-            4: [900, 1475],  # 핀포인트
-            5: [1100, 1475], # 핀포인트
-            6: [1300, 1475], # 핀포인트
-            7: [1475, 1475], # 핀포인트
-            
-            # 8~11번 주차구역 (우측 주차구역)
-            8: [1475, 1475], # 핀포인트
-            9: [1475, 1300], # 핀포인트
-            10: [1475, 1100], # 핀포인트
-            11: [1475, 925],  # 핀포인트
-            
-            # 12~17번 주차구역 (중간 주차구역)
-            12: [1475, 925], # 핀포인트
-            13: [1300, 925], # 핀포인트
-            14: [1100, 925], # 핀포인트
-            15: [900, 925],  # 핀포인트
-            16: [700, 925],  # 핀포인트
-            17: [500, 925],  # 핀포인트
+            1: (150, 1500),    # 장애인 구역 1
+            2: (450, 1500),    # 장애인 구역 2
+            3: (700, 1500),    # 일반 구역 3
+            4: (900, 1500),    # 일반 구역 4
+            5: (1100, 1500),   # 일반 구역 5
+            6: (1300, 1500),   # 전기차 구역 6
+            7: (1500, 1500),   # 전기차 구역 7
+            8: (1500, 1500),   # 일반 구역 8
+            9: (1500, 1300),   # 일반 구역 9
+            10: (1500, 1100),  # 일반 구역 10
+            11: (1500, 925),   # 일반 구역 11
+            12: (1500, 925),   # 일반 구역 12
+            13: (1300, 925),   # 일반 구역 13
+            14: (1100, 925),   # 일반 구역 14
+            15: (900, 925),    # 일반 구역 15
+            16: (700, 925),    # 일반 구역 16
+            17: (500, 925),    # 일반 구역 17
         }
         
-        return parking_pinpoints.get(parking_spot)
+        if parking_spot in parking_pinpoints:
+            x, y = parking_pinpoints[parking_spot]
+            return [x, y]
+        
+        return None
 
     def calculate_and_display_exit_route(self, exit_waypoints, parking_spot):
-        """출차 경로 계산 및 표시 - 핀포인트에서 시작"""
-        # 주차구역별 핀포인트 가져오기
-        pinpoint = self.get_parking_spot_start_waypoint(parking_spot)
-        if not pinpoint:
-            QMessageBox.warning(self, "출차 경로 실패", "핀포인트를 찾을 수 없습니다.")
+        """출차 경로 계산 및 표시 - 각 주차구역 핀포인트부터 시작"""
+        # 주차구역별 핀포인트에서 시작
+        assigned_waypoint = self.get_parking_spot_start_waypoint(parking_spot)
+        if not assigned_waypoint:
+            QMessageBox.warning(self, "출차 경로 실패", "배정 웨이포인트를 찾을 수 없습니다.")
             return
         
-        # 전체 경로 구성: 핀포인트 → 출차 웨이포인트들
-        all_waypoints = [pinpoint] + exit_waypoints
+        start_point = QPointF(assigned_waypoint[0], assigned_waypoint[1])
         
-        # 웨이포인트를 QPointF로 변환하고 클램프
-        waypoints_qpoints = [self.clamp_point(QPointF(p[0], p[1])) for p in all_waypoints]
+        # 전체 경로 구성: 핀포인트 → 웨이포인트들
+        waypoints_qpoints = [start_point] + [self.clamp_point(QPointF(p[0], p[1])) for p in exit_waypoints]
         self.snapped_waypoints = [self.find_nearest_free_cell_from_point(p) for p in waypoints_qpoints]
         
-        # 차량의 현재 위치에서 핀포인트까지의 경로 계산
-        car_pos = self.car.pos()
-        pinpoint_pos = self.clamp_point(QPointF(pinpoint[0], pinpoint[1]))
-        
-        # 차량 위치에서 핀포인트까지의 경로
-        car_to_pinpoint = self.astar(car_pos, pinpoint_pos)
-        if not car_to_pinpoint:
-            QMessageBox.warning(self, "출차 경로 실패", f"차량에서 핀포인트까지의 경로를 찾을 수 없습니다: {car_pos.x():.0f},{car_pos.y():.0f} -> {pinpoint_pos.x():.0f},{pinpoint_pos.y():.0f}")
-            return
-        
-        # 핀포인트에서 출차 웨이포인트들까지의 경로 계산
-        segments = [car_to_pinpoint]
-        prev = pinpoint_pos
-        
-        for goal in self.snapped_waypoints[1:]:  # 핀포인트는 이미 처리했으므로 제외
+        segments, prev = [], start_point
+        for goal in self.snapped_waypoints:
             c = self.astar(prev, goal)
             if not c: 
                 QMessageBox.warning(self, "출차 경로 실패", f"출차 경로를 찾을 수 없습니다: {prev.x():.0f},{prev.y():.0f} -> {goal.x():.0f},{goal.y():.0f}")
@@ -1225,14 +1198,13 @@ class ParkingLotUI(QWidget):
             segments.append(c)
             prev = goal
         
-        # 모든 세그먼트를 하나의 경로로 합치기
         whole = [c for i, seg in enumerate(segments) for c in (seg if i == 0 else seg[1:])]
         self.full_path_points = [self.cell_to_pt_center(c) for c in self.simplify_cells(whole)]
         if not self.full_path_points: 
             return
 
         # 시작점과 끝점 설정
-        self.full_path_points[0] = car_pos
+        self.full_path_points[0] = start_point
         self.full_path_points[-1] = self.snapped_waypoints[-1]
         
         # 기존 경로 클리어 후 출차 경로 그리기
