@@ -256,8 +256,8 @@ class DummyCarClient:
         # 서버에는 목적지 경로만 전송
         waypoints_to_send = [
             [200, 925],
-            [200,1475],
-            [450,1475]
+            [200, 1475],
+            [900, 1475]
         ]
         self.send_waypoints(waypoints_to_send)
 
