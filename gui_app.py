@@ -308,7 +308,7 @@ class SimulationSetupScreen(BaseScreen):
         self.initUI()
 
     def initUI(self):
-        title = QLabel("SmartParking System")
+        title = QLabel("Smart Parking System")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"font-size: {FONT_SIZES['main_title']}pt; font-weight: bold; color: {HYUNDAI_COLORS['text_primary']}; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);")
 
@@ -548,7 +548,7 @@ class HyundaiStyleUI(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('HYUNDAI SmartParking System')
+        self.setWindowTitle('Smart Parking System')
         self.resize(1280, 800)
         self.setMinimumSize(1000, 700)
         main_layout = QVBoxLayout(self)
@@ -585,7 +585,7 @@ class HyundaiStyleUI(QWidget):
     def launch_parking_ui(self):
         """[슬롯] `send_finished` 신호를 받으면 호출됩니다."""
         try:
-            script_name = 'testing.py'
+            script_name = 'UI_testing.py'
             print(f"\n✅ 전송 성공! 다음 UI 실행 시도: {script_name}")
             subprocess.Popen([sys.executable, script_name])
             QApplication.quit()
