@@ -40,7 +40,7 @@ def get_destination_name(destination_number):
 # Wi-Fi 통신 설정
 # ===================================================================
 WIFI_CONFIG = {
-    'target_ip': '192.168.0.167',
+    'target_ip': '192.168.204.151',
     'port': 7777
 }
 
