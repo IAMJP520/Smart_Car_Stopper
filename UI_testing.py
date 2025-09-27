@@ -978,30 +978,77 @@ class ParkingLotUI(QWidget):
     def cell_to_pt_center(self, c): return QPointF(c[0]*self.CELL+self.CELL/2., c[1]*self.CELL+self.CELL/2.)
     def is_cell_free(self, cx, cy): return 0<=cx<self.grid_w and 0<=cy<self.grid_h and self.occ[self._occ_idx(cx,cy)]==0
     
-    def find_nearest_free_cell_from_point(self, p: QPointF, max_radius_cells=30):
+    def find_nearest_free_cell_from_point(self, p: QPointF, max_radius_cells=100):
+        """주어진 점에서 가장 가까운 자유 셀을 찾습니다."""
         sx, sy = self.pt_to_cell(p)
-        if self.is_cell_free(sx, sy): return self.cell_to_pt_center((sx, sy))
+        print(f"🔍 자유 셀 검색: 원본 좌표 ({p.x():.1f}, {p.y():.1f}) -> 셀 ({sx}, {sy})")
+        
+        # 원본 셀이 자유하면 바로 반환
+        if self.is_cell_free(sx, sy): 
+            result = self.cell_to_pt_center((sx, sy))
+            print(f"✅ 원본 셀이 자유함: {result}")
+            return result
+            
+        # 주변에서 자유 셀 검색
         for r in range(1, max_radius_cells + 1):
             for dx in range(-r, r+1):
                 for dy in [-r, r]:
-                    if self.is_cell_free(sx+dx, sy+dy): return self.cell_to_pt_center((sx+dx, sy+dy))
+                    if self.is_cell_free(sx+dx, sy+dy): 
+                        result = self.cell_to_pt_center((sx+dx, sy+dy))
+                        print(f"✅ 자유 셀 발견 (반경 {r}): ({sx+dx}, {sy+dy}) -> {result}")
+                        return result
             for dy in range(-r+1, r):
                 for dx in [-r, r]:
-                    if self.is_cell_free(sx+dx, sy+dy): return self.cell_to_pt_center((sx+dx, sy+dy))
-        return self.cell_to_pt_center((sx, sy))
+                    if self.is_cell_free(sx+dx, sy+dy): 
+                        result = self.cell_to_pt_center((sx+dx, sy+dy))
+                        print(f"✅ 자유 셀 발견 (반경 {r}): ({sx+dx}, {sy+dy}) -> {result}")
+                        return result
+        
+        # 자유 셀을 찾지 못한 경우 원본 셀 반환 (강제)
+        result = self.cell_to_pt_center((sx, sy))
+        print(f"⚠️ 자유 셀을 찾지 못함, 원본 셀 반환: {result}")
+        return result
 
     def astar(self, start_pt: QPointF, goal_pt: QPointF):
+        """A* 알고리즘으로 경로를 찾습니다."""
         sx, sy = self.pt_to_cell(start_pt)
         gx, gy = self.pt_to_cell(goal_pt)
         W, H = self.grid_w, self.grid_h
         occ, idx = self.occ, self._occ_idx
-        if not (0 <= sx < W and 0 <= sy < H and 0 <= gx < W and 0 <= gy < H) or occ[idx(sx, sy)] or occ[idx(gx, gy)]:
+        
+        print(f"🗺️ A* 경로 검색: ({start_pt.x():.1f}, {start_pt.y():.1f}) -> ({goal_pt.x():.1f}, {goal_pt.y():.1f})")
+        print(f"   셀 좌표: ({sx}, {sy}) -> ({gx}, {gy})")
+        
+        # 경계 체크
+        if not (0 <= sx < W and 0 <= sy < H and 0 <= gx < W and 0 <= gy < H):
+            print(f"❌ 경계 밖 좌표: 시작({sx}, {sy}) 목적지({gx}, {gy}), 그리드 크기({W}, {H})")
+            return None
+        
+        # 시작점이나 목적지가 점유된 경우 가장 가까운 자유 셀로 이동
+        if occ[idx(sx, sy)]:
+            print(f"⚠️ 시작점 ({sx}, {sy})이 점유됨, 자유 셀 검색 중...")
+            free_start = self.find_nearest_free_cell_from_point(start_pt)
+            sx, sy = self.pt_to_cell(free_start)
+            print(f"   새로운 시작점: ({sx}, {sy})")
+            
+        if occ[idx(gx, gy)]:
+            print(f"⚠️ 목적지 ({gx}, {gy})이 점유됨, 자유 셀 검색 중...")
+            free_goal = self.find_nearest_free_cell_from_point(goal_pt)
+            gx, gy = self.pt_to_cell(free_goal)
+            print(f"   새로운 목적지: ({gx}, {gy})")
+        
+        # 여전히 점유된 경우 경로 찾기 불가
+        if occ[idx(sx, sy)] or occ[idx(gx, gy)]:
+            print(f"❌ 시작점 또는 목적지가 여전히 점유됨: 시작({sx}, {sy})={occ[idx(sx, sy)]}, 목적지({gx}, {gy})={occ[idx(gx, gy)]}")
             return None
         
         openh = [(abs(sx - gx) + abs(sy - gy), 0, (sx, sy))]
         came, g = {}, {(sx, sy): 0}
+        iterations = 0
+        max_iterations = 10000  # 무한 루프 방지
         
-        while openh:
+        while openh and iterations < max_iterations:
+            iterations += 1
             _, gc, (x, y) = heappop(openh)
             
             if (x, y) == (gx, gy):
@@ -1012,6 +1059,7 @@ class ParkingLotUI(QWidget):
                     curr = came[curr]
                 path.append((sx, sy))
                 path.reverse()
+                print(f"✅ 경로 발견! {len(path)}개 셀, {iterations}회 반복")
                 return path
             
             for dx, dy, cst in [(1, 0, 1), (-1, 0, 1), (0, 1, 1), (0, -1, 1)]:
@@ -1026,7 +1074,11 @@ class ParkingLotUI(QWidget):
                     g[(nx, ny)] = ng
                     came[(nx, ny)] = (x, y)
                     heappush(openh, (ng + abs(nx - gx) + abs(ny - gy), ng, (nx, ny)))
-                    
+        
+        if iterations >= max_iterations:
+            print(f"❌ 최대 반복 횟수 초과: {max_iterations}회")
+        else:
+            print(f"❌ 경로를 찾을 수 없음: {iterations}회 반복 후 종료")
         return None
 
     def simplify_cells(self, cells):
