@@ -238,28 +238,129 @@ class DummyCarClient:
 
         print("✅ 시뮬레이션 완료: 최종 목적지에 도달했습니다.")
 
+    # ====== 주차구역 좌표 정의 ======
+    def get_parking_coordinates(self):
+        """주차구역 1~11번의 중심 좌표를 반환합니다."""
+        return {
+            1: [200, 1800],    # 장애인 구역 (상단)
+            2: [550, 1800],    # 일반 구역 (상단)
+            3: [850, 1800],    # 일반 구역 (상단)
+            4: [1150, 1800],   # 전기차 구역 (상단)
+            5: [1450, 1800],   # 전기차 구역 (상단)
+            6: [1800, 1400],   # 장애인 구역 (우측)
+            7: [1800, 1000],   # 장애인 구역 (우측)
+            8: [1450, 600],    # 일반 구역 (하단)
+            9: [1150, 600],    # 일반 구역 (하단)
+            10: [850, 600],    # 전기차 구역 (하단)
+            11: [550, 600]     # 전기차 구역 (하단)
+        }
+
+    def show_parking_menu(self):
+        """주차구역 선택 메뉴를 표시합니다."""
+        coords = self.get_parking_coordinates()
+        print("\n" + "="*60)
+        print("🏢 주차구역 선택 메뉴")
+        print("="*60)
+        print("상단 주차구역:")
+        for i in range(1, 6):
+            spot_type = "장애인" if i == 1 else ("일반" if i in [2,3] else "전기차")
+            print(f"  {i}번: {spot_type} 구역 - 좌표: {coords[i]}")
+        
+        print("\n우측 주차구역:")
+        for i in range(6, 8):
+            print(f"  {i}번: 장애인 구역 - 좌표: {coords[i]}")
+        
+        print("\n하단 주차구역:")
+        for i in range(8, 12):
+            spot_type = "일반" if i in [8,9] else "전기차"
+            print(f"  {i}번: {spot_type} 구역 - 좌표: {coords[i]}")
+        
+        print("="*60)
+        return coords
+
+    def select_parking_spot(self):
+        """사용자가 주차구역을 선택할 수 있도록 합니다."""
+        coords = self.show_parking_menu()
+        
+        while True:
+            try:
+                choice = input("\n🎯 주차구역 번호를 선택하세요 (1~11, 또는 'q'로 종료): ").strip()
+                
+                if choice.lower() == 'q':
+                    print("👋 프로그램을 종료합니다.")
+                    return None
+                
+                spot_num = int(choice)
+                if 1 <= spot_num <= 11:
+                    selected_coords = coords[spot_num]
+                    spot_type = "장애인" if spot_num in [1,6,7] else ("일반" if spot_num in [2,3,8,9] else "전기차")
+                    print(f"✅ {spot_num}번 {spot_type} 구역이 선택되었습니다: {selected_coords}")
+                    return spot_num, selected_coords
+                else:
+                    print("❌ 1~11번 중에서 선택해주세요.")
+            except ValueError:
+                print("❌ 숫자를 입력해주세요.")
+            except KeyboardInterrupt:
+                print("\n👋 프로그램을 종료합니다.")
+                return None
+
+    def generate_route_to_parking(self, parking_spot_num, parking_coords):
+        """선택된 주차구역으로의 경로를 생성합니다."""
+        ENTRANCE = [200, 200]
+        
+        # 주차구역별 경로 생성
+        if parking_spot_num in [1, 2, 3, 4, 5]:  # 상단 주차구역
+            route = [
+                [200, 925],    # 중간 지점
+                [200, 1475],   # 상단 중간
+                parking_coords  # 최종 목적지
+            ]
+        elif parking_spot_num in [6, 7]:  # 우측 주차구역
+            route = [
+                [200, 925],    # 중간 지점
+                [1475, 925],   # 우측 중간
+                parking_coords  # 최종 목적지
+            ]
+        else:  # 하단 주차구역 (8, 9, 10, 11)
+            route = [
+                [200, 925],    # 중간 지점
+                parking_coords  # 최종 목적지
+            ]
+        
+        return route
+
     # ====== 시나리오 ======
     def run_scenario(self, manual=True):
         """
         시나리오 실행:
           1) 서버 연결
-          2) 경로(목적지들) 자동 전송
-          3) (manual=True) 수동 조종 모드로 실시간 위치 전송
+          2) 주차구역 선택
+          3) 경로(목적지들) 자동 전송
+          4) (manual=True) 수동 조종 모드로 실시간 위치 전송
              (manual=False) 자동 이동 시뮬레이션
         """
         if not self.connect_to_server():
             return
 
+        # 주차구역 선택
+        selection = self.select_parking_spot()
+        if selection is None:
+            self.close_connection()
+            return
+        
+        parking_spot_num, parking_coords = selection
+        
+        # 선택된 주차구역으로의 경로 생성
+        waypoints_to_send = self.generate_route_to_parking(parking_spot_num, parking_coords)
+        
+        print(f"\n🗺️  {parking_spot_num}번 주차구역으로의 경로를 전송합니다:")
+        for i, waypoint in enumerate(waypoints_to_send):
+            print(f"  {i+1}. {waypoint}")
+        
+        self.send_waypoints(waypoints_to_send)
+
         # 서버와 동일한 '입구' 시작점
         ENTRANCE = [200, 200]
-
-        # 서버에는 목적지 경로만 전송
-        waypoints_to_send = [
-            [200, 925],
-            [200, 1475],
-            [900, 1475]
-        ]
-        self.send_waypoints(waypoints_to_send)
 
         if manual:
             print("⏳ 3초 후 키보드 수동 조종을 시작합니다...")

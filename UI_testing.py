@@ -846,10 +846,13 @@ class ParkingLotUI(QWidget):
             r.setBrush(QBrush(color))
             
         # 펜(테두리) 설정 - 요청사항 반영
-        if "장애인" in label or "전기차" in label or "일반" in label:
-            # 1~17번 주차 구역에 해당하는 경우: 흰색, 10픽셀 테두리
-            pen = QPen(QColor("white"), 10)
+        if "장애인" in label or "전기" in label or "일반" in label:
+            # 주차 구역에 해당하는 경우: 흰색, 20픽셀 테두리
+            pen = QPen(QColor("white"), 20)
             r.setPen(pen)
+        elif "입출차" in label:
+            # 입출차 구역은 테두리 없음
+            r.setPen(QPen(Qt.NoPen))
         else:
             # 그 외의 블록(장애물, 입출차 구역 등)은 기존 테두리 유지
             r.setPen(QPen(QColor(255,255,255,100), 2))
@@ -861,8 +864,8 @@ class ParkingLotUI(QWidget):
             t = QGraphicsSimpleTextItem(label)
             t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             t.setBrush(QColor(255,255,255))
-            # 미용실, 마트, 식당은 폰트 크기를 1.5배로 설정
-            if label in ["미용실", "마트", "식당"]:
+            # 미용실, 마트, 식당, 주차구역은 폰트 크기를 1.5배로 설정
+            if label in ["미용실", "마트", "식당", "장애인", "전기", "일반"]:
                 font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 1.5), QFont.Bold)
             else:
                 font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
@@ -873,22 +876,55 @@ class ParkingLotUI(QWidget):
     def add_hatched(self, x, y, w, h, edge=QColor("black"), fill=QColor(220, 20, 60, 90)):
         r = QGraphicsRectItem(QRectF(x,y,w,h)); b = QBrush(fill); b.setStyle(Qt.BDiagPattern); r.setBrush(b); r.setPen(QPen(edge,3)); r.setParentItem(self.layer_static)
         t = QGraphicsSimpleTextItem("통행 불가"); t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True); t.setBrush(QColor(255,100,100))
-        font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold); t.setFont(font); t.setPos(x+10,y+h-30); t.setParentItem(self.layer_static)
+        font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 1.5), QFont.Bold); t.setFont(font); t.setPos(x+10,y+h-30); t.setParentItem(self.layer_static)
 
     def add_dot_label_static(self, p: QPointF, text: str, color=QColor("blue")):
-        d = QGraphicsEllipseItem(p.x()-8,p.y()-8,16,16); gradient = QLinearGradient(p.x()-8,p.y()-8,p.x()+8,p.y()+8); gradient.setColorAt(0,QColor(0,170,210)); gradient.setColorAt(1,QColor(0,44,95)); d.setBrush(QBrush(gradient)); d.setPen(QPen(QColor(255,255,255),3)); d.setParentItem(self.layer_static)
+        # 점(원형) 제거 - 텍스트만 표시
         t = QGraphicsSimpleTextItem(text); t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True); t.setBrush(QColor(0,200,255))
         font = QFont("Malgun Gothic", FONT_SIZES['map_io_label'], QFont.Bold); t.setFont(font); t.setPos(p.x()-20,p.y()+25); t.setParentItem(self.layer_static)
 
     def build_static_layout(self):
         c_dis, c_ele, c_gen, c_obs, c_emp, c_io = QColor(135, 206, 250), QColor(0, 200, 130), QColor("#303030"), QColor(108, 117, 125), QColor(206, 212, 218), QColor("#303030")
         border = QGraphicsRectItem(0, 0, self.SCENE_W, self.SCENE_H); border.setPen(QPen(QColor(0, 170, 210), 12)); border.setBrush(QBrush(Qt.NoBrush)); border.setParentItem(self.layer_static)
-        base = [(0, 1600, 300, 400, c_dis, "장애인"), (300, 1600, 300, 400, c_dis, "장애인"), (600, 1600, 200, 400, c_gen, "일반"), (800, 1600, 200, 400, c_gen, "일반"), (1000, 1600, 200, 400, c_gen, "일반"), (1200, 1600, 200, 400, c_ele, "전기차"), (1400, 1600, 200, 400, c_ele, "전기차"), (1600, 1600, 400, 400, c_emp, "마트"), (-400, 1600, 400, 400, c_emp, "미용실"), (550, 1050, 800, 300, c_obs, "장애물"), (1600, 400, 400, 400, c_emp, "식당"), (0, 0, 400, 400, c_io, "입출차")]
+        
+        # 입출차 구역을 가장 먼저 추가 (맨 뒤로 보내기 위해)
+        self.add_block(0, 0, 400, 400, c_io, "입출차")
+        
+        # 목적지 블록들 (입출차 제외)
+        base = [
+            (-400, 1600, 400, 400, c_emp, "미용실"),  # 미용실
+            (1600, 1600, 400, 400, c_emp, "마트"),    # 마트
+            (1600, 400, 400, 400, c_emp, "식당"),     # 식당
+            (550, 1050, 800, 300, c_obs, "장애물")    # 금지구역
+        ]
+        
+        # 새로운 주차구역들 (1~11번)
+        parking_spots = [
+            # 1~5번 주차구역 (상단 주차구역)
+            (0, 1600, 400, 400, c_dis, "장애인"),      # 장애인 구역
+            (400, 1600, 300, 400, c_gen, "일반"),    # 일반 구역
+            (700, 1600, 300, 400, c_gen, "일반"),    # 일반 구역
+            (1000, 1600, 300, 400, c_ele, "전기"),   # 전기차 구역
+            (1300, 1600, 300, 400, c_ele, "전기"),   # 전기차 구역
+            
+            # 6~7번 주차구역 (우측 주차구역)
+            (1600, 1200, 400, 400, c_dis, "장애인"),   # 장애인 구역
+            (1600, 800, 400, 400, c_dis, "장애인"),     # 장애인 구역
+            
+            # 8~11번 주차구역 (하단 주차구역)
+            (1300, 400, 300, 400, c_gen, "일반"),     # 일반 구역
+            (1000, 400, 300, 400, c_gen, "일반"),     # 일반 구역
+            (700, 400, 300, 400, c_ele, "전기"),    # 전기차 구역
+            (400, 400, 300, 400, c_ele, "전기")      # 전기차 구역
+        ]
+        
         for x, y, w, h, c, l in base: self.add_block(x, y, w, h, c, l)
-        for i in range(6): self.add_block(400 + i * 200, 400, 200, 400, c_gen, "일반")
-        for i in range(4): self.add_block(1600, 800 + i * 200, 400, 200, c_gen, "일반")
+        
         self.add_hatched(400, 0, 1600, 400)
         self.add_dot_label_static(self.ENTRANCE, "입구", QColor(0, 170, 210))
+        
+        # 주차구역을 가장 마지막에 추가하여 가장 위에 표시되도록 함
+        for x, y, w, h, c, l in parking_spots: self.add_block(x, y, w, h, c, l)
 
     def build_occupancy(self):
         W, H, C = self.SCENE_W, self.SCENE_H, self.CELL; gx, gy = (W + C - 1) // C, (H + C - 1) // C
@@ -900,9 +936,41 @@ class ParkingLotUI(QWidget):
             for cy in range(cy0,cy1+1):
                 for cx in range(cx0,cx1+1):
                     if 0<=cx<gx and 0<=cy<gy: self.occ[cy*gx+cx] = 1
-        for x,y,w,h,c,l in [(550,1050,800,300,0,""),(400,0,1600,400,0,""),(1600,400,400,400,0,""),(1600,1600,400,400,0,""),(-400,1600,400,400,0,""),(0,1600,300,400,0,""),(300,1600,300,400,0,""),(600,1600,200,400,0,""),(800,1600,200,400,0,""),(1000,1600,200,400,0,""),(1200,1600,200,400,0,""),(1400,1600,200,400,0,"")]: block_rect(x,y,w,h)
-        for i in range(6): block_rect(400+i*200,400,200,400)
-        for i in range(4): block_rect(1600,800+i*200,400,200)
+        
+        # 목적지 및 장애물 블록들
+        for x,y,w,h,c,l in [
+            (550,1050,800,300,0,""),      # 금지구역
+            (400,0,1600,400,0,""),        # 하단 통행금지구역
+            (1600,400,400,400,0,""),      # 식당
+            (1600,1600,400,400,0,""),     # 마트
+            (-400,1600,400,400,0,""),     # 미용실
+            (0,0,400,400,0,"")            # 입출차
+        ]: 
+            block_rect(x,y,w,h)
+        
+        # 새로운 주차구역들 (1~11번)
+        parking_blocks = [
+            # 1~5번 주차구역 (상단 주차구역)
+            (0, 1600, 400, 400, 0, ""),      # 1번
+            (400, 1600, 300, 400, 0, ""),    # 2번
+            (700, 1600, 300, 400, 0, ""),    # 3번
+            (1000, 1600, 300, 400, 0, ""),   # 4번
+            (1300, 1600, 300, 400, 0, ""),   # 5번
+            
+            # 6~7번 주차구역 (우측 주차구역)
+            (1600, 1200, 400, 400, 0, ""),   # 6번
+            (1600, 800, 400, 400, 0, ""),    # 7번
+            
+            # 8~11번 주차구역 (하단 주차구역)
+            (1300, 400, 300, 400, 0, ""),    # 8번
+            (1000, 400, 300, 400, 0, ""),    # 9번
+            (700, 400, 300, 400, 0, ""),     # 10번
+            (400, 400, 300, 400, 0, "")      # 11번
+        ]
+        
+        for x,y,w,h,c,l in parking_blocks: 
+            block_rect(x,y,w,h)
+        
         self._occ_idx = idx
 
     def clamp_point(self, p: QPointF): return QPointF(min(self.SCENE_W-1.,max(0.,p.x())), min(self.SCENE_H-1.,max(0.,p.y())))
@@ -1097,25 +1165,24 @@ class ParkingLotUI(QWidget):
         """차량 위치를 기반으로 주차 구역 번호 감지"""
         x, y = car_pos.x(), car_pos.y()
         
-        # 주차 구역별 좌표 범위 정의 (업데이트된 번호)
+        # 새로운 주차 구역별 좌표 범위 정의 (1~11번)
         parking_spots = {
-            1: (0, 1600, 300, 400),      # 장애인 구역 1
-            2: (300, 1600, 300, 400),    # 장애인 구역 2
-            3: (600, 1600, 200, 400),    # 일반 구역 3
-            4: (800, 1600, 200, 400),    # 일반 구역 4
-            5: (1000, 1600, 200, 400),   # 일반 구역 5
-            6: (1200, 1600, 200, 400),   # 전기차 구역 6
-            7: (1400, 1600, 200, 400),   # 전기차 구역 7
-            8: (1600, 1400, 400, 200),   # 일반 구역 8
-            9: (1600, 1200, 400, 200),   # 일반 구역 9
-            10: (1600, 1000, 400, 200),  # 일반 구역 10
-            11: (1600, 800, 400, 200),   # 일반 구역 11
-            12: (1400, 400, 200, 400),   # 일반 구역 12
-            13: (1200, 400, 200, 400),   # 일반 구역 13
-            14: (1000, 400, 200, 400),   # 일반 구역 14
-            15: (800, 400, 200, 400),    # 일반 구역 15
-            16: (600, 400, 200, 400),    # 일반 구역 16
-            17: (400, 400, 200, 400),    # 일반 구역 17
+            # 1~5번 주차구역 (상단 주차구역)
+            1: (0, 1600, 400, 400),      # 장애인 구역
+            2: (400, 1600, 300, 400),    # 일반 구역
+            3: (700, 1600, 300, 400),    # 일반 구역
+            4: (1000, 1600, 300, 400),   # 전기차 구역
+            5: (1300, 1600, 300, 400),   # 전기차 구역
+            
+            # 6~7번 주차구역 (우측 주차구역)
+            6: (1600, 1200, 400, 400),   # 장애인 구역
+            7: (1600, 800, 400, 400),     # 장애인 구역
+            
+            # 8~11번 주차구역 (하단 주차구역)
+            8: (1300, 400, 300, 400),    # 일반 구역
+            9: (1000, 400, 300, 400),     # 일반 구역
+            10: (700, 400, 300, 400),     # 전기차 구역
+            11: (400, 400, 300, 400),     # 전기차 구역
         }
         
         for spot_num, (spot_x, spot_y, spot_w, spot_h) in parking_spots.items():
@@ -1126,23 +1193,23 @@ class ParkingLotUI(QWidget):
 
     def generate_exit_waypoints(self, parking_spot):
         """주차 구역에 따른 출차 웨이포인트 생성"""
-        if parking_spot in [1, 2, 3, 4, 5, 6, 7]:
-            # 1~7번: 핀포인트 → (1475,1475) → (1475,925) → (200,925) → (200,200)
+        if parking_spot in [1, 2, 3, 4, 5]:
+            # 1~5번: 핀포인트 → (1475,1475) → (1475,925) → (200,925) → (200,200)
             return [
                 [1475, 1475],  # 1번 필수 웨이포인트
                 [1475, 925],   # 2번 필수 웨이포인트
                 [200, 925],    # 중간 웨이포인트
                 [200, 200]     # 최종 목적지 (입구)
             ]
-        elif parking_spot in [8, 9, 10, 11]:
-            # 8~11번: 핀포인트 → (1475,925) → (200,925) → (200,200)
+        elif parking_spot in [6, 7]:
+            # 6~7번: 핀포인트 → (1475,925) → (200,925) → (200,200)
             return [
                 [1475, 925],   # 2번 필수 웨이포인트
                 [200, 925],    # 중간 웨이포인트
                 [200, 200]     # 최종 목적지 (입구)
             ]
-        elif parking_spot in [12, 13, 14, 15, 16, 17]:
-            # 12~17번: 핀포인트 → (200,925) → (200,200)
+        elif parking_spot in [8, 9, 10, 11]:
+            # 8~11번: 핀포인트 → (200,925) → (200,200)
             return [
                 [200, 925],    # 중간 웨이포인트
                 [200, 200]     # 최종 목적지 (입구)
@@ -1154,23 +1221,22 @@ class ParkingLotUI(QWidget):
         """주차구역별 시작 웨이포인트 반환 - 각 주차구역의 핀포인트에서 시작"""
         # 각 주차구역의 핀포인트 위치 (중심점)
         parking_pinpoints = {
-            1: (150, 1500),    # 장애인 구역 1
-            2: (450, 1500),    # 장애인 구역 2
-            3: (700, 1500),    # 일반 구역 3
-            4: (900, 1500),    # 일반 구역 4
-            5: (1100, 1500),   # 일반 구역 5
-            6: (1300, 1500),   # 전기차 구역 6
-            7: (1500, 1500),   # 전기차 구역 7
-            8: (1500, 1500),   # 일반 구역 8
-            9: (1500, 1300),   # 일반 구역 9
-            10: (1500, 1100),  # 일반 구역 10
-            11: (1500, 925),   # 일반 구역 11
-            12: (1500, 925),   # 일반 구역 12
-            13: (1300, 925),   # 일반 구역 13
-            14: (1100, 925),   # 일반 구역 14
-            15: (900, 925),    # 일반 구역 15
-            16: (700, 925),    # 일반 구역 16
-            17: (500, 925),    # 일반 구역 17
+            # 1~5번 주차구역 (상단 주차구역)
+            1: (200, 1475),    # 1번 핀포인트
+            2: (550, 1475),    # 2번 핀포인트
+            3: (850, 1475),    # 3번 핀포인트
+            4: (1150, 1475),   # 4번 핀포인트
+            5: (1450, 1475),   # 5번 핀포인트
+            
+            # 6~7번 주차구역 (우측 주차구역)
+            6: (1475, 1400),   # 6번 핀포인트
+            7: (1475, 1000),   # 7번 핀포인트
+            
+            # 8~11번 주차구역 (하단 주차구역)
+            8: (1450, 925),    # 8번 핀포인트
+            9: (1150, 925),     # 9번 핀포인트
+            10: (850, 925),    # 10번 핀포인트
+            11: (550, 925),    # 11번 핀포인트
         }
         
         if parking_spot in parking_pinpoints:
