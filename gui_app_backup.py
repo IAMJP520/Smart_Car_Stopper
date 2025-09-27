@@ -16,10 +16,31 @@ from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProp
                           QPointF, QSequentialAnimationGroup, QObject, pyqtSignal) # 👈 QObject, pyqtSignal 추가
 
 # ===================================================================
+# 목적지 매핑 함수
+# ===================================================================
+def get_destination_number(destination_name):
+    """목적지 이름을 숫자로 변환 (RSSI.c 형식에 맞춤)"""
+    destination_mapping = {
+        "미용실": 0,
+        "마트": 1,
+        "식당": 2
+    }
+    return destination_mapping.get(destination_name, 0)  # 기본값은 0 (미용실)
+
+def get_destination_name(destination_number):
+    """숫자를 목적지 이름으로 변환"""
+    number_mapping = {
+        0: "미용실",
+        1: "마트", 
+        2: "식당"
+    }
+    return number_mapping.get(destination_number, "미용실")  # 기본값은 미용실
+
+# ===================================================================
 # Wi-Fi 통신 설정
 # ===================================================================
 WIFI_CONFIG = {
-    'target_ip': '192.168.0.167',
+    'target_ip': '192.168.204.27',
     'port': 7777
 }
 
@@ -458,9 +479,9 @@ class DestinationSelectionScreen(BaseScreen):
         destination_buttons_layout.addWidget(self.mart_btn)
         destination_buttons_layout.addWidget(self.restaurant_btn)
 
-        self.beauty_btn.clicked.connect(lambda: self.select_destination('cut'))
-        self.mart_btn.clicked.connect(lambda: self.select_destination('buy'))
-        self.restaurant_btn.clicked.connect(lambda: self.select_destination('eat'))
+        self.beauty_btn.clicked.connect(lambda: self.select_destination('미용실'))
+        self.mart_btn.clicked.connect(lambda: self.select_destination('마트'))
+        self.restaurant_btn.clicked.connect(lambda: self.select_destination('식당'))
 
         self.content_layout.addStretch(1)
         self.content_layout.addWidget(title)
@@ -471,10 +492,12 @@ class DestinationSelectionScreen(BaseScreen):
 
     def select_destination(self, destination):
         if hasattr(self.parent_window, 'send_final_choice'):
+            # 목적지를 숫자로 변환 (RSSI.c 형식에 맞춤)
+            destination_number = get_destination_number(destination)
             self.parent_window.send_final_choice(
                 self.vehicle_type,
                 self.is_handicapped,
-                destination,
+                destination_number,  # 숫자로 전송
                 'regular'  # 기본값으로 regular 설정
             )
 
@@ -634,7 +657,7 @@ class HyundaiStyleUI(QWidget):
     def launch_parking_ui(self):
         """[슬롯] `send_finished` 신호를 받으면 호출됩니다."""
         try:
-            script_name = 'UI_testing.py'
+            script_name = 'UWB_PARKING_UI_ver2.py'
             print(f"\n✅ 전송 성공! 다음 UI 실행 시도: {script_name}")
             subprocess.Popen([sys.executable, script_name])
             QApplication.quit()

@@ -230,12 +230,46 @@ class PremiumHudWidget(QFrame):
             }}
         """)
         self.exit_scenario_button.clicked.connect(self.start_exit_scenario)
+        
+        # 경로 재생성 버튼 추가
+        self.reroute_button = QPushButton("경로 재생성", self)
+        self.reroute_button.setGeometry(50, 600, 350, 40)
+        self.reroute_button.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {HYUNDAI_COLORS['warning']}, 
+                    stop:1 {HYUNDAI_COLORS['danger']});
+                color: {HYUNDAI_COLORS['text_primary']};
+                border: 2px solid {HYUNDAI_COLORS['warning']};
+                border-radius: 20px;
+                font-size: 16px;
+                font-weight: bold;
+                font-family: 'Malgun Gothic';
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {HYUNDAI_COLORS['danger']}, 
+                    stop:1 {HYUNDAI_COLORS['warning']});
+                border: 2px solid {HYUNDAI_COLORS['text_primary']};
+            }}
+            QPushButton:pressed {{
+                background: {HYUNDAI_COLORS['danger']};
+                border: 2px solid {HYUNDAI_COLORS['warning']};
+            }}
+        """)
+        self.reroute_button.clicked.connect(self.manual_reroute)
 
     def start_exit_scenario(self):
         """출차 시나리오 시작"""
         # 부모 위젯(ParkingLotUI)의 출차 시나리오 메서드 호출
         if hasattr(self.parent(), 'start_exit_scenario'):
             self.parent().start_exit_scenario()
+    
+    def manual_reroute(self):
+        """수동 경로 재생성"""
+        # 부모 위젯(ParkingLotUI)의 수동 경로 재생성 메서드 호출
+        if hasattr(self.parent(), 'manual_reroute'):
+            self.parent().manual_reroute()
 
     def init_particles(self):
         self.particle_positions = []
@@ -1544,6 +1578,108 @@ class ParkingLotUI(QWidget):
         
         # HUD 업데이트
         self.update_hud_from_car_position(self.car.pos())
+    
+    def manual_reroute(self):
+        """수동 경로 재생성 - sender_new.py와 통신하여 새로운 경로 요청"""
+        if not self.car.isVisible() or not self.full_path_points:
+            QMessageBox.warning(self, "경로 재생성 오류", "차량이 지도에 표시되지 않았거나 경로가 없습니다.")
+            return
+        
+        car_pos = self.car.pos()
+        
+        # 현재 목적지가 무엇인지 파악 (마지막 웨이포인트)
+        if not self.full_path_points:
+            QMessageBox.warning(self, "경로 재생성 오류", "경로 정보가 없습니다.")
+            return
+        
+        final_destination = self.full_path_points[-1]
+        
+        # 목적지가 어떤 주차구역인지 찾기
+        target_parking_spot = self.detect_parking_spot_from_coords(final_destination)
+        
+        if target_parking_spot is None:
+            QMessageBox.warning(self, "경로 재생성 오류", "목적지 주차구역을 찾을 수 없습니다.")
+            return
+        
+        # sender_new.py의 경로 재생성 로직을 사용하여 새로운 경로 생성
+        new_waypoints = self.generate_reroute_waypoints_from_position(car_pos, target_parking_spot)
+        
+        if new_waypoints:
+            # 새로운 경로로 업데이트
+            self.update_route_from_point(car_pos, new_waypoints)
+            QMessageBox.information(self, "경로 재생성", f"주차구역 {target_parking_spot}번으로의 새로운 경로가 생성되었습니다.")
+            print("✅ 수동 경로 재생성 완료")
+        else:
+            QMessageBox.warning(self, "경로 재생성 실패", "새로운 경로를 생성할 수 없습니다.")
+            print("❌ 수동 경로 재생성 실패")
+    
+    def detect_parking_spot_from_coords(self, coords):
+        """좌표를 기반으로 주차구역 번호 감지"""
+        x, y = coords.x(), coords.y()
+        
+        # 주차구역별 waypoint 좌표와 비교
+        parking_waypoints = {
+            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
+            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
+            5: [1450, 1475],
+            # 주차구역 6-7 (우측, 위→아래)  
+            6: [1475, 1400], 7: [1475, 1000],
+            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
+            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
+        }
+        
+        for spot_num, waypoint_coords in parking_waypoints.items():
+            if abs(x - waypoint_coords[0]) < 10 and abs(y - waypoint_coords[1]) < 10:
+                return spot_num
+        
+        return None
+    
+    def generate_reroute_waypoints_from_position(self, current_position, target_parking_spot):
+        """현재 위치에서 목적지로의 재탐색 경로를 생성합니다 (sender_new.py 로직 사용)"""
+        # sender.py의 주차구역별 waypoint 좌표와 동일
+        parking_waypoints = {
+            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
+            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
+            5: [1450, 1475],
+            # 주차구역 6-7 (우측, 위→아래)  
+            6: [1475, 1400], 7: [1475, 1000],
+            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
+            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
+        }
+        
+        target_waypoint = parking_waypoints.get(target_parking_spot)
+        if not target_waypoint:
+            return None
+        
+        new_waypoints = []
+        current_pos = [current_position.x(), current_position.y()]
+        
+        # 현재 위치를 고려한 경로 생성 (sender_new.py 로직과 동일)
+        if target_parking_spot == 1:  # 1번: 현재위치 -> (200,1475)
+            if current_pos[1] < 1475:  # 아직 위로 올라가야 함
+                new_waypoints.append(target_waypoint)
+        elif target_parking_spot in [2, 3, 4, 5]:  # 2~5번: 현재위치 -> (200, 1475) -> 최종 주차구역
+            if current_pos[1] < 1475:  # 아직 위로 올라가야 함
+                new_waypoints.append([200, 1475])
+            if current_pos[0] < target_waypoint[0]:  # 아직 오른쪽으로 가야 함
+                new_waypoints.append(target_waypoint)
+        elif target_parking_spot == 6:  # 6번: 현재위치 -> (200, 1475) -> (1475, 1475) -> (1475, 1400)
+            if current_pos[1] < 1475:
+                new_waypoints.append([200, 1475])
+            if current_pos[0] < 1475:
+                new_waypoints.append([1475, 1475])
+            if current_pos[1] > 1400:
+                new_waypoints.append([1475, 1400])
+        elif target_parking_spot == 7:  # 7번: 현재위치 -> (1475, 925) -> (1475, 1000)
+            if current_pos[0] < 1475:
+                new_waypoints.append([1475, 925])
+            if current_pos[1] > 1000:
+                new_waypoints.append([1475, 1000])
+        elif target_parking_spot in [8, 9, 10, 11]:  # 8~11번: 현재위치 -> 최종 주차구역
+            if current_pos[0] < target_waypoint[0]:
+                new_waypoints.append(target_waypoint)
+        
+        return new_waypoints
 
     def start_exit_scenario(self):
         """출차 시나리오 시작 - 시계방향으로 출차 경로 생성"""

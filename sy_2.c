@@ -1,12 +1,16 @@
 // =================================================================
-//   입출차 차단기 ESP32 코드 (V4.2.0 - 라즈베리파이 호환성 강화)
+//  입출차 차단기 ESP32 코드 (V4.2.1 - Merged Version)
 //
-// - [호환성] RPI 코드에 맞춰 입차 요청 토픽을 '/parking/auth_req'로 변경
-// - [호환성] 입차 요청 시 elec/disabled 필드를 Boolean 타입으로 전송
-// - [호환성] UWB 추적 시작/종료 토픽 발행 로직 제거 (RPI 역할)
-// - [안정성] ROS Agent 연결 상태 주기적 확인(ping) 로직 복원
-// - [안정성] 모든 토픽 발행 전 Agent 연결 상태 확인 로직 추가
-// - [최적화] 불필요한 waypoints 구독 로직 제거
+// - ROS2 통신 로직 (V4.2.0 기반):
+//   - [호환성] RPI 코드에 맞춰 입차 요청 토픽을 '/parking/auth_req'로 사용
+//   - [호환성] 입차 요청 시 elec/disabled 필드를 Boolean 타입으로 전송
+//   - [호환성] UWB 추적 관련 토픽 발행 로직 제거 (RPI 역할 명확화)
+//   - [안정성] ROS Agent 연결 상태 주기적 확인(ping) 및 발행 전 상태 확인
+//
+// - 차단기 제어 로직 (V4.0.0 구조 기반):
+//   - [기능] BLE 통신으로 입/출차 정보 수신 시, 서버(ROS2)에 인증/요청 전달
+//   - [기능] 초음파 센서로 차량 통과 감지 후 차단기 자동 닫힘
+//   - [기능] 차단기 닫힘 상태를 'barrier_event' 토픽으로 서버에 보고
 // =================================================================
 
 // ========================[ 기능 활성화 스위치 ]========================
@@ -65,7 +69,7 @@ rcl_node_t node;
 rclc_support_t support;
 rcl_allocator_t allocator;
 rclc_executor_t executor;
-rcl_publisher_t auth_req_pub; // [수정] 토픽명 변경 entry_req -> auth_req
+rcl_publisher_t auth_req_pub;
 rcl_publisher_t exit_req_pub;
 rcl_publisher_t barrier_event_pub;
 rcl_subscription_t barrier_control_sub;
@@ -200,7 +204,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 currentVehicle.guiMac = String(macStr);
                 
                 Serial.printf("   -> [입차] 차량 정보: ID=%s, TagID=%d, Dest=%d\n", 
-                              currentVehicle.vehicleId.c_str(), currentVehicle.tagId, currentVehicle.destination);
+                                currentVehicle.vehicleId.c_str(), currentVehicle.tagId, currentVehicle.destination);
                 
                 #ifdef USE_MICRO_ROS
                 publishEntryRequest(currentVehicle);
@@ -228,7 +232,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 currentVehicle.tagId = tagId;
                 
                 Serial.printf("   -> [출차] 차량 정보: ID=%s, TagID=%d\n", 
-                              currentVehicle.vehicleId.c_str(), currentVehicle.tagId);
+                                currentVehicle.vehicleId.c_str(), currentVehicle.tagId);
                 
                 #ifdef USE_MICRO_ROS
                 publishExitRequest(tagId);
@@ -344,7 +348,7 @@ void setup() {
 
 void loop() {
     #ifdef USE_MICRO_ROS
-    // [추가] Agent 연결 상태 주기적 확인 로직
+    // Agent 연결 상태 주기적 확인
     if (millis() - last_ping_time >= ping_interval) {
         last_ping_time = millis();
         agent_connected = (rmw_uros_ping_agent(100, 1) == RMW_RET_OK);
@@ -516,7 +520,6 @@ void initMicroROS() {
     rclc_node_init_default(&node, "parking_barrier", "", &support);
     
     // Publishers
-    // [수정] RPI 코드에 맞춰 토픽명 변경 및 불필요한 토픽 제거
     rclc_publisher_init_default(&auth_req_pub, &node, 
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String), "/parking/auth_req");
     rclc_publisher_init_default(&exit_req_pub, &node, 
@@ -545,8 +548,8 @@ void publishEntryRequest(const VehicleInfo& vehicle) {
     StaticJsonDocument<512> doc;
     doc["vehicle_id"] = vehicle.vehicleId;
     doc["tag_id"] = vehicle.tagId;
-    doc["elec"] = (vehicle.type == "electric"); // [수정] Boolean으로 전송
-    doc["disabled"] = (vehicle.disabledType == "disabled"); // [수정] Boolean으로 전송
+    doc["elec"] = (vehicle.type == "electric"); // Boolean으로 전송
+    doc["disabled"] = (vehicle.disabledType == "disabled"); // Boolean으로 전송
     doc["preferred"] = vehicle.preferred;
     doc["destination"] = vehicle.destination;
     doc["gui_mac"] = vehicle.guiMac;

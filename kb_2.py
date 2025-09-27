@@ -42,14 +42,13 @@ class ParkingManagementNode(Node):
         
         # 주차구역별 waypoint 좌표
         self.parking_waypoints = {
-            # 주차구역 1-7 (상단, 왼쪽→오른쪽)
-            1: (150, 1475), 2: (450, 1475), 3: (700, 1475), 4: (900, 1475),
-            5: (1100, 1475), 6: (1300, 1475), 7: (1475, 1475),
-            # 주차구역 8-11 (우측, 위→아래)  
-            8: (1475, 1475), 9: (1475, 1300), 10: (1475, 1100), 11: (1475, 925),
-            # 주차구역 12-17 (하단, 오른쪽→왼쪽)
-            12: (1475, 925), 13: (1300, 925), 14: (1100, 925), 15: (900, 925),
-            16: (700, 925), 17: (500, 925)
+            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
+            1: (200, 1475), 2: (550, 1475), 3: (850, 1475), 4: (1150, 1475),
+            5: (1450, 1475),
+            # 주차구역 6-7 (우측, 위→아래)  
+            6: (1475, 1400), 7: (1475, 1000),
+            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
+            8: (1475, 925), 9: (1150, 925), 10: (850, 925), 11: (550, 925)
         }
         
         self.get_logger().info('주차장 시스템 초기화 완료')
@@ -119,23 +118,25 @@ class ParkingManagementNode(Node):
                 elec = vehicle_info.get("elec", False)
                 disabled = vehicle_info.get("disabled", False)
                 preferred = vehicle_info.get("preferred", "normal")
+                destination = vehicle_info.get("destination", 0)  # destination 추가
                 
                 self.get_logger().info(f'자동 배정 시작: {vehicle_id} (preferred={preferred}, '
-                                     f'elec={elec}, disabled={disabled})')
+                                     f'elec={elec}, disabled={disabled}, destination={destination})')
                 
-                # 관리자 프로그램에 주차공간 배정 요청
-                self.request_parking_spot(vehicle_id, preferred, elec, disabled)
+                # 관리자 프로그램에 주차공간 배정 요청 (destination 포함)
+                self.request_parking_spot(vehicle_id, preferred, elec, disabled, destination)
                 
         except json.JSONDecodeError as e:
             self.get_logger().error(f'차량 정보 JSON 파싱 실패: {e}')
 
-    def request_parking_spot(self, vehicle_id: str, preferred: str, elec: bool, disabled: bool):
-        """관리자 프로그램에 주차공간 배정 요청"""
+    def request_parking_spot(self, vehicle_id: str, preferred: str, elec: bool, disabled: bool, destination: int):
+        """관리자 프로그램에 주차공간 배정 요청 (destination 포함)"""
         request_data = {
             "vehicle_id": vehicle_id,
             "preferred": preferred,
             "elec": elec,
             "disabled": disabled,
+            "destination": destination,  # destination 추가
             "timestamp": datetime.now().isoformat()
         }
         
@@ -150,7 +151,8 @@ class ParkingManagementNode(Node):
         request_msg.data = json.dumps(request_data)
         self.spot_request_pub.publish(request_msg)
         
-        self.get_logger().info(f'주차공간 배정 요청 전송: {vehicle_id}')
+        destination_desc = self.get_destination_description(destination)
+        self.get_logger().info(f'주차공간 배정 요청 전송: {vehicle_id} (목적지: {destination_desc})')
 
     def spot_info_callback(self, msg):
         """관리자 프로그램으로부터 주차공간 정보 수신"""
@@ -167,6 +169,7 @@ class ParkingManagementNode(Node):
             assignment_data = json.loads(msg.data)
             vehicle_id = assignment_data.get("vehicle_id")
             assigned_spot = assignment_data.get("assigned_spot")
+            destination = assignment_data.get("destination", 0)  # destination 정보 추가
             
             if vehicle_id not in self.pending_requests:
                 self.get_logger().warn(f'예상하지 못한 배정 결과: {vehicle_id}')
@@ -176,22 +179,24 @@ class ParkingManagementNode(Node):
             del self.pending_requests[vehicle_id]
             
             if assigned_spot:
-                self.get_logger().info(f'주차공간 배정 완료: {vehicle_id} -> {assigned_spot}번')
+                destination_desc = self.get_destination_description(destination)
+                self.get_logger().info(f'주차공간 배정 완료: {vehicle_id} -> {assigned_spot}번 (목적지: {destination_desc})')
                 
                 # waypoint 계산 및 전송
                 waypoints = self.calculate_waypoints(assigned_spot)
                 if waypoints:
-                    success = self.send_waypoints_to_teammate(assigned_spot, waypoints, vehicle_id)
-                    self.publish_waypoint_result(assigned_spot, waypoints, success, vehicle_id)
+                    success = self.send_waypoints_to_teammate(assigned_spot, waypoints, vehicle_id, destination)
+                    self.publish_waypoint_result(assigned_spot, waypoints, success, vehicle_id, destination)
                     
                     if success:
-                        self.publish_status(f'{vehicle_id} -> {assigned_spot}번 구역 전송 성공 (자동 배정)')
+                        self.publish_status(f'{vehicle_id} -> {assigned_spot}번 구역 전송 성공 (자동 배정, 목적지: {destination_desc})')
                     else:
                         self.publish_status(f'{vehicle_id} -> {assigned_spot}번 구역 전송 실패')
                 else:
                     self.get_logger().error(f'{assigned_spot}번 구역 waypoint 계산 실패')
             else:
-                self.get_logger().error(f'주차공간 배정 실패: {vehicle_id} - 사용 가능한 공간 없음')
+                destination_desc = self.get_destination_description(destination)
+                self.get_logger().error(f'주차공간 배정 실패: {vehicle_id} (목적지: {destination_desc}) - 사용 가능한 공간 없음')
                 self.publish_status(f'{vehicle_id} 배정 실패 - 만차')
                 
         except json.JSONDecodeError as e:
@@ -203,17 +208,21 @@ class ParkingManagementNode(Node):
             return []
         
         target_waypoint = self.parking_waypoints[target_spot]
-        waypoints = [self.MANDATORY_WAYPOINT]  # 필수 시작점
+        waypoints = [self.MANDATORY_WAYPOINT]  # 필수 시작점 (200, 925)
         
-        if target_spot in [1, 2]:  # 직진 가능
+        if target_spot == 1:  # 1번: (200, 925) -> (200,1475)
             waypoints.append(target_waypoint)
-        elif target_spot in [3, 4, 5, 6, 7]:  # 직진 후 우회전
+        elif target_spot in [2, 3, 4, 5]:  # 2~5번: (200, 925) -> (200, 1475) -> 최종 주차구역
             waypoints.append((200, 1475))
             waypoints.append(target_waypoint)
-        elif target_spot in [8, 9, 10]:  # 우회전 후 좌회전/직진
+        elif target_spot == 6:  # 6번: (200, 925) -> (200, 1475) -> (1475, 1475) -> (1475, 1400)
+            waypoints.append((200, 1475))
+            waypoints.append((1475, 1475))
+            waypoints.append(target_waypoint)
+        elif target_spot == 7:  # 7번: (200, 925) -> (1475, 925) -> (1475, 1000)
             waypoints.append((1475, 925))
             waypoints.append(target_waypoint)
-        elif target_spot in [11, 12, 13, 14, 15, 16, 17]:  # 우회전 후 직진
+        elif target_spot in [8, 9, 10, 11]:  # 8~11번: (200, 925) -> 최종 주차구역
             waypoints.append(target_waypoint)
         
         return waypoints
@@ -222,8 +231,8 @@ class ParkingManagementNode(Node):
         """수동 주차구역 배정 요청 처리"""
         spot_number = msg.data
         
-        if spot_number < 1 or spot_number > 17:
-            self.get_logger().error(f'잘못된 주차구역 번호: {spot_number} (1-17만 가능)')
+        if spot_number < 1 or spot_number > 11:
+            self.get_logger().error(f'잘못된 주차구역 번호: {spot_number} (1-11만 가능)')
             return
         
         waypoints = self.calculate_waypoints(spot_number)
@@ -235,11 +244,11 @@ class ParkingManagementNode(Node):
         self.get_logger().info(f'{spot_number}번 구역 수동 배정')
         self.get_logger().info(f'계산된 waypoints: {waypoints}')
         
-        # 팀원에게 전송
-        success = self.send_waypoints_to_teammate(spot_number, waypoints, f"MANUAL_{spot_number:02d}")
+        # 팀원에게 전송 (수동 배정이므로 destination은 0으로 설정)
+        success = self.send_waypoints_to_teammate(spot_number, waypoints, f"MANUAL_{spot_number:02d}", 0)
         
         # ROS 토픽으로도 발행
-        self.publish_waypoint_result(spot_number, waypoints, success, f"MANUAL_{spot_number:02d}")
+        self.publish_waypoint_result(spot_number, waypoints, success, f"MANUAL_{spot_number:02d}", 0)
         
         if success:
             self.get_logger().info('팀원에게 전송 완료 (수동)')
@@ -248,13 +257,15 @@ class ParkingManagementNode(Node):
             self.get_logger().error('팀원에게 전송 실패 (수동)')
             self.publish_status(f'{spot_number}번 구역 전송 실패 (수동 배정)')
     
-    def send_waypoints_to_teammate(self, spot_number: int, waypoints: List[Tuple[int, int]], vehicle_id: str) -> bool:
-        """팀원 노트북으로 waypoint 전송 (TCP)"""
+    def send_waypoints_to_teammate(self, spot_number: int, waypoints: List[Tuple[int, int]], vehicle_id: str, destination: int) -> bool:
+        """팀원 노트북으로 waypoint 전송 (TCP) - destination 정보 포함"""
         data = {
             'type': 'waypoint_assignment',
             'vehicle_id': vehicle_id,
             'assigned_spot': spot_number,
             'waypoints': waypoints,
+            'destination': destination,  # destination 정보 추가
+            'destination_desc': self.get_destination_description(destination),  # 목적지 설명 추가
             'timestamp': datetime.now().isoformat(),
             'total_waypoints': len(waypoints),
             'description': self.get_route_description(spot_number),
@@ -292,26 +303,39 @@ class ParkingManagementNode(Node):
     
     def get_route_description(self, spot_number: int) -> str:
         """경로 설명 생성"""
-        spot_type = "장애인 구역" if spot_number in [1, 2] else \
-                   "전기차 충전 구역" if spot_number in [6, 7] else "일반 구역"
+        spot_type = "장애인 구역" if spot_number in [1, 6, 7] else \
+                   "전기차 충전 구역" if spot_number in [4, 5] else "일반 구역"
         
-        if spot_number in [1, 2]:
+        if spot_number == 1:
             return f"{spot_number}번 {spot_type}: 직진 가능 경로"
-        elif spot_number in [3, 4, 5, 6, 7]:
-            return f"{spot_number}번 {spot_type}: 직진 후 우회전"
-        elif spot_number in [8, 9, 10]:
-            return f"{spot_number}번 {spot_type}: 우회전 후 좌회전/직진"
-        elif spot_number in [11, 12, 13, 14, 15, 16, 17]:
-            return f"{spot_number}번 {spot_type}: 우회전 후 직진"
+        elif spot_number in [2, 3, 4, 5]:
+            return f"{spot_number}번 {spot_type}: 직진 후 해당 주차구역으로"
+        elif spot_number == 6:
+            return f"{spot_number}번 {spot_type}: 직진 후 우회전하여 우측 상단"
+        elif spot_number == 7:
+            return f"{spot_number}번 {spot_type}: 우회전하여 우측 하단"
+        elif spot_number in [8, 9, 10, 11]:
+            return f"{spot_number}번 {spot_type}: 우회전 후 하단 구역"
         else:
             return f"{spot_number}번 {spot_type}: 경로 계산됨"
     
-    def publish_waypoint_result(self, spot_number: int, waypoints: List[Tuple[int, int]], success: bool, vehicle_id: str):
-        """waypoint 결과를 ROS 토픽으로 발행"""
+    def get_destination_description(self, destination: int) -> str:
+        """목적지 설명 반환"""
+        destination_names = {
+            0: "백화점 본관",
+            1: "영화관",
+            2: "문화시설"
+        }
+        return destination_names.get(destination, "미지정")
+    
+    def publish_waypoint_result(self, spot_number: int, waypoints: List[Tuple[int, int]], success: bool, vehicle_id: str, destination: int):
+        """waypoint 결과를 ROS 토픽으로 발행 (destination 정보 포함)"""
         result_data = {
             'vehicle_id': vehicle_id,
             'spot_number': spot_number,
             'waypoints': waypoints,
+            'destination': destination,  # destination 정보 추가
+            'destination_desc': self.get_destination_description(destination),
             'success': success,
             'timestamp': datetime.now().isoformat(),
             'waypoint_count': len(waypoints),

@@ -40,7 +40,7 @@ def get_destination_name(destination_number):
 # Wi-Fi 통신 설정
 # ===================================================================
 WIFI_CONFIG = {
-    'target_ip': '192.168.204.151',
+    'target_ip': '192.168.204.27',
     'port': 7777
 }
 
@@ -446,10 +446,11 @@ class TransitionScreen(BaseScreen):
 
 class DestinationSelectionScreen(BaseScreen):
     """시뮬레이션 완료 후 목적지 선택 화면"""
-    def __init__(self, vehicle_type, is_handicapped, parent=None):
+    def __init__(self, vehicle_type, is_handicapped, parent=None, preferred_spot=None):
         super().__init__(parent)
         self.vehicle_type = vehicle_type
         self.is_handicapped = is_handicapped
+        self.preferred_spot = preferred_spot  # FingerprintAuthentication에서 전달받은 preferred_spot
         self.initUI()
 
     def initUI(self):
@@ -494,11 +495,16 @@ class DestinationSelectionScreen(BaseScreen):
         if hasattr(self.parent_window, 'send_final_choice'):
             # 목적지를 숫자로 변환 (RSSI.c 형식에 맞춤)
             destination_number = get_destination_number(destination)
+            # preferred_spot 우선순위: FingerprintAuthentication에서 전달받은 값 > vehicle_type 기반 값
+            if self.preferred_spot:
+                preferred_spot = self.preferred_spot
+            else:
+                preferred_spot = 'electric' if self.vehicle_type == 'electric' else 'regular'
             self.parent_window.send_final_choice(
                 self.vehicle_type,
                 self.is_handicapped,
                 destination_number,  # 숫자로 전송
-                'regular'  # 기본값으로 regular 설정
+                preferred_spot  # 우선순위에 따라 동적으로 설정
             )
 
 class FingerprintAuthentication(BaseScreen):
@@ -544,8 +550,10 @@ class FingerprintAuthentication(BaseScreen):
         self.send_final_choice(self.fallback_scenario)
 
     def send_final_choice(self, preferred_spot):
+        # 장애인 인증 성공 시 preferred_spot을 저장하고 목적지 선택 화면으로 이동
+        self.preferred_spot = preferred_spot
         if hasattr(self.parent_window, 'show_destination_selection'):
-            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped)
+            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped, preferred_spot)
 
 class ElectricVehicleOptions(BaseScreen):
     def __init__(self, vehicle_type, is_handicapped, parent=None):
@@ -580,7 +588,7 @@ class ElectricVehicleOptions(BaseScreen):
 
     def send_final_choice(self, preferred_spot):
         if hasattr(self.parent_window, 'show_destination_selection'):
-            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped)
+            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped, preferred_spot)
 
 class RegularVehicleResult(BaseScreen):
     def __init__(self, vehicle_type, is_handicapped, parent=None):
@@ -598,7 +606,7 @@ class RegularVehicleResult(BaseScreen):
 
     def confirm_and_launch(self):
         if hasattr(self.parent_window, 'show_destination_selection'):
-            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped)
+            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped, 'regular')
 
 # ===================================================================
 # ❗ [수정] 메인 윈도우 (시그널-슬롯 연결)
@@ -657,7 +665,7 @@ class HyundaiStyleUI(QWidget):
     def launch_parking_ui(self):
         """[슬롯] `send_finished` 신호를 받으면 호출됩니다."""
         try:
-            script_name = 'UI_testing.py'
+            script_name = 'UWB_PARKING_UI_ver2.py'
             print(f"\n✅ 전송 성공! 다음 UI 실행 시도: {script_name}")
             subprocess.Popen([sys.executable, script_name])
             QApplication.quit()
@@ -701,8 +709,8 @@ class HyundaiStyleUI(QWidget):
         result_screen = RegularVehicleResult(vehicle_type, is_handicapped, self)
         self.switch_screen(result_screen)
 
-    def show_destination_selection(self, vehicle_type, is_handicapped):
-        destination_screen = DestinationSelectionScreen(vehicle_type, is_handicapped, self)
+    def show_destination_selection(self, vehicle_type, is_handicapped, preferred_spot=None):
+        destination_screen = DestinationSelectionScreen(vehicle_type, is_handicapped, self, preferred_spot)
         self.switch_screen(destination_screen)
 
     def switch_screen(self, new_screen):
