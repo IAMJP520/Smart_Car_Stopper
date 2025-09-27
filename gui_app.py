@@ -16,6 +16,27 @@ from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProp
                           QPointF, QSequentialAnimationGroup, QObject, pyqtSignal) # 👈 QObject, pyqtSignal 추가
 
 # ===================================================================
+# 목적지 매핑 함수
+# ===================================================================
+def get_destination_number(destination_name):
+    """목적지 이름을 숫자로 변환 (RSSI.c 형식에 맞춤)"""
+    destination_mapping = {
+        "미용실": 0,
+        "마트": 1,
+        "식당": 2
+    }
+    return destination_mapping.get(destination_name, 0)  # 기본값은 0 (미용실)
+
+def get_destination_name(destination_number):
+    """숫자를 목적지 이름으로 변환"""
+    number_mapping = {
+        0: "미용실",
+        1: "마트", 
+        2: "식당"
+    }
+    return number_mapping.get(destination_number, "미용실")  # 기본값은 미용실
+
+# ===================================================================
 # Wi-Fi 통신 설정
 # ===================================================================
 WIFI_CONFIG = {
@@ -367,7 +388,8 @@ class SimulationSetupScreen(BaseScreen):
         self.content_layout.addStretch(1)
 
     def check_selections(self):
-        if self.vehicle_btn_group.checkedButton() and self.handicap_btn_group.checkedButton():
+        if (self.vehicle_btn_group.checkedButton() and 
+            self.handicap_btn_group.checkedButton()):
             self.start_btn.setEnabled(True)
         else:
             self.start_btn.setEnabled(False)
@@ -422,6 +444,63 @@ class TransitionScreen(BaseScreen):
         if hasattr(self.parent_window, 'show_scenario'):
             self.parent_window.show_scenario(self.vehicle_type, self.is_handicapped)
 
+class DestinationSelectionScreen(BaseScreen):
+    """시뮬레이션 완료 후 목적지 선택 화면"""
+    def __init__(self, vehicle_type, is_handicapped, parent=None):
+        super().__init__(parent)
+        self.vehicle_type = vehicle_type
+        self.is_handicapped = is_handicapped
+        self.initUI()
+
+    def initUI(self):
+        title = QLabel("목적지 선택")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"font-size: {FONT_SIZES['main_title']}pt; font-weight: bold; color: {HYUNDAI_COLORS['text_primary']}; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);")
+
+        subtitle = QLabel("어디로 가시나요?")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet(f"font-size: {FONT_SIZES['main_subtitle']}pt; color: {HYUNDAI_COLORS['text_secondary']};")
+
+        self.destination_btn_group = QButtonGroup(self)
+        self.destination_btn_group.setExclusive(True)
+
+        destination_buttons_layout = QVBoxLayout()
+        destination_buttons_layout.setSpacing(20)
+        
+        self.beauty_btn = AnimatedButton("💇 미용실")
+        self.mart_btn = AnimatedButton("🛒 마트")
+        self.restaurant_btn = AnimatedButton("🍽️ 식당")
+        
+        self.destination_btn_group.addButton(self.beauty_btn)
+        self.destination_btn_group.addButton(self.mart_btn)
+        self.destination_btn_group.addButton(self.restaurant_btn)
+        
+        destination_buttons_layout.addWidget(self.beauty_btn)
+        destination_buttons_layout.addWidget(self.mart_btn)
+        destination_buttons_layout.addWidget(self.restaurant_btn)
+
+        self.beauty_btn.clicked.connect(lambda: self.select_destination('미용실'))
+        self.mart_btn.clicked.connect(lambda: self.select_destination('마트'))
+        self.restaurant_btn.clicked.connect(lambda: self.select_destination('식당'))
+
+        self.content_layout.addStretch(1)
+        self.content_layout.addWidget(title)
+        self.content_layout.addWidget(subtitle)
+        self.content_layout.addSpacing(40)
+        self.content_layout.addLayout(destination_buttons_layout)
+        self.content_layout.addStretch(2)
+
+    def select_destination(self, destination):
+        if hasattr(self.parent_window, 'send_final_choice'):
+            # 목적지를 숫자로 변환 (RSSI.c 형식에 맞춤)
+            destination_number = get_destination_number(destination)
+            self.parent_window.send_final_choice(
+                self.vehicle_type,
+                self.is_handicapped,
+                destination_number,  # 숫자로 전송
+                'regular'  # 기본값으로 regular 설정
+            )
+
 class FingerprintAuthentication(BaseScreen):
     def __init__(self, vehicle_type, is_handicapped, fallback_scenario, parent=None):
         super().__init__(parent)
@@ -465,12 +544,8 @@ class FingerprintAuthentication(BaseScreen):
         self.send_final_choice(self.fallback_scenario)
 
     def send_final_choice(self, preferred_spot):
-        if hasattr(self.parent_window, 'send_final_choice'):
-            self.parent_window.send_final_choice(
-                self.vehicle_type,
-                self.is_handicapped,
-                preferred_spot
-            )
+        if hasattr(self.parent_window, 'show_destination_selection'):
+            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped)
 
 class ElectricVehicleOptions(BaseScreen):
     def __init__(self, vehicle_type, is_handicapped, parent=None):
@@ -504,12 +579,8 @@ class ElectricVehicleOptions(BaseScreen):
             self.parent_window.show_fingerprint_auth(self.vehicle_type, self.is_handicapped, 'regular')
 
     def send_final_choice(self, preferred_spot):
-        if hasattr(self.parent_window, 'send_final_choice'):
-            self.parent_window.send_final_choice(
-                self.vehicle_type,
-                self.is_handicapped,
-                preferred_spot
-            )
+        if hasattr(self.parent_window, 'show_destination_selection'):
+            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped)
 
 class RegularVehicleResult(BaseScreen):
     def __init__(self, vehicle_type, is_handicapped, parent=None):
@@ -526,12 +597,8 @@ class RegularVehicleResult(BaseScreen):
         self.content_layout.addStretch(1); self.content_layout.addWidget(success_label); self.content_layout.addWidget(message); self.content_layout.addWidget(info); self.content_layout.addSpacing(30); self.content_layout.addWidget(confirm_btn); self.content_layout.addStretch(1)
 
     def confirm_and_launch(self):
-        if hasattr(self.parent_window, 'send_final_choice'):
-            self.parent_window.send_final_choice(
-                self.vehicle_type,
-                self.is_handicapped,
-                'regular'
-            )
+        if hasattr(self.parent_window, 'show_destination_selection'):
+            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped)
 
 # ===================================================================
 # ❗ [수정] 메인 윈도우 (시그널-슬롯 연결)
@@ -564,7 +631,7 @@ class HyundaiStyleUI(QWidget):
         self.setStyleSheet(f"background-color: {HYUNDAI_COLORS['background']};")
         self.showMaximized()
 
-    def send_final_choice(self, vehicle_type, is_handicapped, preferred_spot):
+    def send_final_choice(self, vehicle_type, is_handicapped, destination, preferred_spot):
         """
         [수정] 최종 선택 정보를 받아 전송만 요청합니다.
         UI 실행은 `send_finished` 신호를 받아 처리합니다.
@@ -575,7 +642,12 @@ class HyundaiStyleUI(QWidget):
         preferred_map = {'regular': 'normal', 'electric': 'elec', 'disabled': 'disabled'}
         preferred_val = preferred_map.get(preferred_spot, 'normal')
 
-        final_data = {"elec": elec_val, "disabled": disabled_val, "preferred": preferred_val}
+        final_data = {
+            "elec": elec_val, 
+            "disabled": disabled_val, 
+            "preferred": preferred_val, 
+            "destination": destination  # 목적지 정보 추가
+        }
         
         # 👈 데이터 전송 요청만 하고 함수는 종료됨
         self.wifi_sender.send_data(final_data)
@@ -628,6 +700,10 @@ class HyundaiStyleUI(QWidget):
     def show_regular_result(self, vehicle_type, is_handicapped):
         result_screen = RegularVehicleResult(vehicle_type, is_handicapped, self)
         self.switch_screen(result_screen)
+
+    def show_destination_selection(self, vehicle_type, is_handicapped):
+        destination_screen = DestinationSelectionScreen(vehicle_type, is_handicapped, self)
+        self.switch_screen(destination_screen)
 
     def switch_screen(self, new_screen):
         while self.stacked_widget.count() > 1:

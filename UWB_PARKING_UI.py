@@ -861,7 +861,11 @@ class ParkingLotUI(QWidget):
             t = QGraphicsSimpleTextItem(label)
             t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             t.setBrush(QColor(255,255,255))
-            font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
+            # 미용실, 마트, 식당은 폰트 크기를 1.5배로 설정
+            if label in ["미용실", "마트", "식당"]:
+                font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 1.5), QFont.Bold)
+            else:
+                font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
             t.setFont(font)
             t.setPos(x+5,y+h-25)
             t.setParentItem(self.layer_static)
@@ -879,7 +883,7 @@ class ParkingLotUI(QWidget):
     def build_static_layout(self):
         c_dis, c_ele, c_gen, c_obs, c_emp, c_io = QColor(135, 206, 250), QColor(0, 200, 130), QColor("#303030"), QColor(108, 117, 125), QColor(206, 212, 218), QColor("#303030")
         border = QGraphicsRectItem(0, 0, self.SCENE_W, self.SCENE_H); border.setPen(QPen(QColor(0, 170, 210), 12)); border.setBrush(QBrush(Qt.NoBrush)); border.setParentItem(self.layer_static)
-        base = [(0, 1600, 300, 400, c_dis, "장애인"), (300, 1600, 300, 400, c_dis, "장애인"), (600, 1600, 200, 400, c_gen, "일반"), (800, 1600, 200, 400, c_gen, "일반"), (1000, 1600, 200, 400, c_gen, "일반"), (1200, 1600, 200, 400, c_ele, "전기차"), (1400, 1600, 200, 400, c_ele, "전기차"), (1600, 1600, 400, 400, c_emp, "101"), (550, 1050, 800, 300, c_obs, "장애물"), (1600, 400, 400, 400, c_emp, "102"), (0, 0, 400, 400, c_io, "입출차")]
+        base = [(0, 1600, 300, 400, c_dis, "장애인"), (300, 1600, 300, 400, c_dis, "장애인"), (600, 1600, 200, 400, c_gen, "일반"), (800, 1600, 200, 400, c_gen, "일반"), (1000, 1600, 200, 400, c_gen, "일반"), (1200, 1600, 200, 400, c_ele, "전기차"), (1400, 1600, 200, 400, c_ele, "전기차"), (1600, 1600, 400, 400, c_emp, "마트"), (-400, 1600, 400, 400, c_emp, "미용실"), (550, 1050, 800, 300, c_obs, "장애물"), (1600, 400, 400, 400, c_emp, "식당"), (0, 0, 400, 400, c_io, "입출차")]
         for x, y, w, h, c, l in base: self.add_block(x, y, w, h, c, l)
         for i in range(6): self.add_block(400 + i * 200, 400, 200, 400, c_gen, "일반")
         for i in range(4): self.add_block(1600, 800 + i * 200, 400, 200, c_gen, "일반")
@@ -896,7 +900,7 @@ class ParkingLotUI(QWidget):
             for cy in range(cy0,cy1+1):
                 for cx in range(cx0,cx1+1):
                     if 0<=cx<gx and 0<=cy<gy: self.occ[cy*gx+cx] = 1
-        for x,y,w,h,c,l in [(550,1050,800,300,0,""),(400,0,1600,400,0,""),(1600,400,400,400,0,""),(1600,1600,400,400,0,""),(0,1600,300,400,0,""),(300,1600,300,400,0,""),(600,1600,200,400,0,""),(800,1600,200,400,0,""),(1000,1600,200,400,0,""),(1200,1600,200,400,0,""),(1400,1600,200,400,0,"")]: block_rect(x,y,w,h)
+        for x,y,w,h,c,l in [(550,1050,800,300,0,""),(400,0,1600,400,0,""),(1600,400,400,400,0,""),(1600,1600,400,400,0,""),(-400,1600,400,400,0,""),(0,1600,300,400,0,""),(300,1600,300,400,0,""),(600,1600,200,400,0,""),(800,1600,200,400,0,""),(1000,1600,200,400,0,""),(1200,1600,200,400,0,""),(1400,1600,200,400,0,"")]: block_rect(x,y,w,h)
         for i in range(6): block_rect(400+i*200,400,200,400)
         for i in range(4): block_rect(1600,800+i*200,400,200)
         self._occ_idx = idx
