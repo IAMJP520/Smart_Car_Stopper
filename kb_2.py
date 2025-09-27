@@ -78,6 +78,7 @@ class ParkingManagementNode(Node):
         
         self.status_pub = self.create_publisher(String, '/parking_status', 10)
         self.waypoint_pub = self.create_publisher(String, '/waypoint_result', 10)
+        self.barrier_cmd_pub = self.create_publisher(String, '/parking/barrier_cmd', 10)
 
     def uwb_comp_callback(self, msg):
         """UWB 실시간 좌표 수신 및 팀원에게 전송"""
@@ -181,6 +182,9 @@ class ParkingManagementNode(Node):
             if assigned_spot:
                 destination_desc = self.get_destination_description(destination)
                 self.get_logger().info(f'주차공간 배정 완료: {vehicle_id} -> {assigned_spot}번 (목적지: {destination_desc})')
+                
+                # 차단기 열기
+                self.open_barrier("entry")
                 
                 # waypoint 계산 및 전송
                 waypoints = self.calculate_waypoints(assigned_spot)
@@ -359,6 +363,19 @@ class ParkingManagementNode(Node):
         status_msg = String()
         status_msg.data = json.dumps(status_data, ensure_ascii=False)
         self.status_pub.publish(status_msg)
+    
+    def open_barrier(self, gate_type: str):
+        """차단기 열기 명령 전송"""
+        barrier_cmd = {
+            "gate": gate_type,  # "entry" 또는 "exit"
+            "action": "open"
+        }
+        
+        cmd_msg = String()
+        cmd_msg.data = json.dumps(barrier_cmd, ensure_ascii=False)
+        self.barrier_cmd_pub.publish(cmd_msg)
+        
+        self.get_logger().info(f'차단기 열기 명령 전송: {gate_type}')
     
     def destroy_node(self):
         """노드 종료 시 정리"""
