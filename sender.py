@@ -305,29 +305,41 @@ class DummyCarClient:
                 return None
 
     def generate_route_to_parking(self, parking_spot_num, parking_coords):
-        """선택된 주차구역으로의 경로를 생성합니다."""
-        ENTRANCE = [200, 200]
+        """ROS2 노드의 calculate_waypoints 로직을 기반으로 주차구역으로의 경로를 생성합니다."""
+        # ROS2 노드의 MANDATORY_WAYPOINT와 동일
+        MANDATORY_WAYPOINT = [200, 925]
         
-        # 주차구역별 경로 생성
-        if parking_spot_num in [1, 2, 3, 4, 5]:  # 상단 주차구역
-            route = [
-                [200, 925],    # 중간 지점
-                [200, 1475],   # 상단 중간
-                parking_coords  # 최종 목적지
-            ]
-        elif parking_spot_num in [6, 7]:  # 우측 주차구역
-            route = [
-                [200, 925],    # 중간 지점
-                [1475, 925],   # 우측 중간
-                parking_coords  # 최종 목적지
-            ]
-        else:  # 하단 주차구역 (8, 9, 10, 11)
-            route = [
-                [200, 925],    # 중간 지점
-                parking_coords  # 최종 목적지
-            ]
+        # ROS2 노드의 주차구역별 waypoint 좌표와 동일하게 설정
+        parking_waypoints = {
+            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
+            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
+            5: [1450, 1475],
+            # 주차구역 6-7 (우측, 위→아래)  
+            6: [1475, 1400], 7: [1475, 1000],
+            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
+            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
+        }
         
-        return route
+        target_waypoint = parking_waypoints.get(parking_spot_num, parking_coords)
+        waypoints = [MANDATORY_WAYPOINT]  # 필수 시작점 (200, 925)
+        
+        # ROS2 노드와 동일한 경로 생성 로직
+        if parking_spot_num == 1:  # 1번: (200, 925) -> (200,1475)
+            waypoints.append(target_waypoint)
+        elif parking_spot_num in [2, 3, 4, 5]:  # 2~5번: (200, 925) -> (200, 1475) -> 최종 주차구역
+            waypoints.append([200, 1475])
+            waypoints.append(target_waypoint)
+        elif parking_spot_num == 6:  # 6번: (200, 925) -> (200, 1475) -> (1475, 1475) -> (1475, 1400)
+            waypoints.append([200, 1475])
+            waypoints.append([1475, 1475])
+            waypoints.append(target_waypoint)
+        elif parking_spot_num == 7:  # 7번: (200, 925) -> (1475, 925) -> (1475, 1000)
+            waypoints.append([1475, 925])
+            waypoints.append(target_waypoint)
+        elif parking_spot_num in [8, 9, 10, 11]:  # 8~11번: (200, 925) -> 최종 주차구역
+            waypoints.append(target_waypoint)
+        
+        return waypoints
 
     # ====== 시나리오 ======
     def run_scenario(self, manual=True):
