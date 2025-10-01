@@ -1,4 +1,4 @@
-# main_launcher.py -> gui_app.py->parking_UI_dark_out_added.py
+# main_launcher.py -> gui_app.py->UWB_PARKING_UI_ver2.py
 import sys
 import socket
 import json
