@@ -69,7 +69,7 @@ class WifiSender(QObject): # 👈 QObject 상속
         error_message = None
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(3)
+                s.settimeout(5)
                 print(f"연결 시도 중... -> {self.host}:{self.port}")
                 s.connect((self.host, self.port))
                 data['timestamp'] = datetime.datetime.now().isoformat()
@@ -242,7 +242,7 @@ class AnimatedButton(QPushButton):
                     stop:0 rgba(0, 44, 95, 0.8), stop:1 rgba(0, 127, 163, 0.8));
                 color: white; border: 2px solid rgba(0, 170, 210, 0.5);
                 border-radius: 25px; font-size: {FONT_SIZES['button']}pt;
-                font-weight: bold; padding: 15px 30px; backdrop-filter: blur(10px);
+                font-weight: bold; padding: 15px 30px;
             }}
             QPushButton:disabled {{
                 background: rgba(40, 50, 70, 0.8);
@@ -256,7 +256,7 @@ class AnimatedButton(QPushButton):
                     stop:0 rgba(0, 170, 210, 0.9), stop:1 rgba(0, 127, 163, 0.9));
                 color: white; border: 2px solid rgba(0, 170, 210, 0.8);
                 border-radius: 25px; font-size: {FONT_SIZES['button']}pt;
-                font-weight: bold; padding: 15px 30px; backdrop-filter: blur(10px);
+                font-weight: bold; padding: 15px 30px;
             }}
         """
         self.setStyleSheet(self.default_style)
