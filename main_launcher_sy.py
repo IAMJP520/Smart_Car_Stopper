@@ -1,4 +1,5 @@
-# 파일 이름: main_launcher.py
+# 파일 이름: main_launcher_sy.py
+# main_launcher_sy.py - gui_app.py - UI_testing.py
 import sys
 import socket
 import json
