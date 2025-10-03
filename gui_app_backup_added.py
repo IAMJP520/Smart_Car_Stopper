@@ -468,9 +468,9 @@ class DestinationSelectionScreen(BaseScreen):
         destination_buttons_layout = QVBoxLayout()
         destination_buttons_layout.setSpacing(20)
         
-        self.beauty_btn = AnimatedButton("🏬 백화점 본관 입구")
-        self.mart_btn = AnimatedButton("🎬 영화관 입구")
-        self.restaurant_btn = AnimatedButton("🎨 문화시설 입구")
+        self.beauty_btn = AnimatedButton("💇 백화점 본관 입구")
+        self.mart_btn = AnimatedButton("🛒 영화관 입구")
+        self.restaurant_btn = AnimatedButton("🍽️ 문화시설 입구")
         
         self.destination_btn_group.addButton(self.beauty_btn)
         self.destination_btn_group.addButton(self.mart_btn)

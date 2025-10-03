@@ -2,7 +2,6 @@ import sys
 import socket
 import json
 import threading
-import time
 from heapq import heappush, heappop
 from math import sqrt, atan2, degrees, sin, cos, radians
 import random
@@ -230,46 +229,12 @@ class PremiumHudWidget(QFrame):
             }}
         """)
         self.exit_scenario_button.clicked.connect(self.start_exit_scenario)
-        
-        # 경로 재생성 버튼 추가
-        self.reroute_button = QPushButton("경로 재생성", self)
-        self.reroute_button.setGeometry(50, 600, 350, 40)
-        self.reroute_button.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {HYUNDAI_COLORS['warning']}, 
-                    stop:1 {HYUNDAI_COLORS['danger']});
-                color: {HYUNDAI_COLORS['text_primary']};
-                border: 2px solid {HYUNDAI_COLORS['warning']};
-                border-radius: 20px;
-                font-size: 16px;
-                font-weight: bold;
-                font-family: 'Malgun Gothic';
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {HYUNDAI_COLORS['danger']}, 
-                    stop:1 {HYUNDAI_COLORS['warning']});
-                border: 2px solid {HYUNDAI_COLORS['text_primary']};
-            }}
-            QPushButton:pressed {{
-                background: {HYUNDAI_COLORS['danger']};
-                border: 2px solid {HYUNDAI_COLORS['warning']};
-            }}
-        """)
-        self.reroute_button.clicked.connect(self.manual_reroute)
 
     def start_exit_scenario(self):
         """출차 시나리오 시작"""
         # 부모 위젯(ParkingLotUI)의 출차 시나리오 메서드 호출
         if hasattr(self.parent(), 'start_exit_scenario'):
             self.parent().start_exit_scenario()
-    
-    def manual_reroute(self):
-        """수동 경로 재생성"""
-        # 부모 위젯(ParkingLotUI)의 수동 경로 재생성 메서드 호출
-        if hasattr(self.parent(), 'manual_reroute'):
-            self.parent().manual_reroute()
 
     def init_particles(self):
         self.particle_positions = []
@@ -783,7 +748,7 @@ class ParkingLotUI(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("HYUNDAI SmartParking Navigation System (WiFi Ver.)")
+        self.setWindowTitle("SmartParking Navigation System")
         self.initial_fit = False
         self.received_waypoints = []
         self.setup_styles()
@@ -817,16 +782,6 @@ class ParkingLotUI(QWidget):
         self.snapped_waypoints = []
         self.current_path_segment_index = 0
         self.is_exit_scenario = False  # 출차 시나리오 상태 추적
-        
-        # 경로 이탈 감지 관련 변수
-        self.path_deviation_timer = QTimer()
-        self.path_deviation_timer.timeout.connect(self.check_path_deviation)
-        self.path_deviation_timer.start(1000)  # 1초마다 체크
-        self.deviation_start_time = None
-        self.deviation_threshold = 3.0  # 3초 이상 이탈 시 경고
-        self.path_margin = 50  # 경로 이탈 감지 마진 (픽셀)
-        self.is_deviating = False
-        
         self.car = CarItem()
         self.car.positionChanged.connect(self.update_hud_from_car_position)
         self.scene.addItem(self.car)
@@ -938,8 +893,8 @@ class ParkingLotUI(QWidget):
             # 주차 구역에 해당하는 경우: 흰색, 20픽셀 테두리
             pen = QPen(QColor("white"), 20)
             r.setPen(pen)
-        elif label in ["미용실", "마트", "식당"]:
-            # 미용실, 마트, 식당: 노랑색 테두리로 통일
+        elif label in ["백화점 본관 입구", "영화관 입구", "문화시설 입구"]:
+            # 백화점 본관 입구, 영화관 입구, 문화시설 입구: 노랑색 테두리로 통일
             pen = QPen(QColor(255, 255, 0), 20)  # 노랑색
             r.setPen(pen)
         elif "입출차" in label:
@@ -956,16 +911,27 @@ class ParkingLotUI(QWidget):
             t = QGraphicsSimpleTextItem(label)
             t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             t.setBrush(QColor(255,255,255))
-            # 미용실, 마트, 식당은 폰트 크기를 2.25배로 설정 (1.5 * 1.5)
-            if label in ["미용실", "마트", "식당"]:
+            # 백화점 본관 입구, 영화관 입구, 문화시설 입구는 폰트 크기를 2.25배로 설정 (1.5 * 1.5)
+            if label in ["백화점 본관 입구", "영화관 입구", "문화시설 입구"]:
                 font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 2.25), QFont.Bold)
+                # 목적지 라벨 위치를 주차구역 좌우에 배치
+                if label == "백화점 본관 입구":
+                    # 백화점: 블록(-400,1600,400,400) 왼쪽으로 310픽셀 이동한 위치에 라벨 배치
+                    t.setPos(x+w//2-50-310, y-20)  # 기존 위치에서 왼쪽으로 310픽셀 이동
+                elif label == "영화관 입구":
+                    # 영화관: 오른쪽 주차구역 아래에 배치
+                    t.setPos(x+w+20, y+h-40)
+                elif label == "문화시설 입구":
+                    # 문화시설: 우측 주차구역 옆에 배치
+                    t.setPos(x+w+20, y+h-60)
             # 주차구역은 폰트 크기를 1.5배로 설정
             elif label in ["장애인", "전기", "일반"]:
                 font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 1.5), QFont.Bold)
+                t.setPos(x+5,y+h-25)
             else:
                 font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
+                t.setPos(x+5,y+h-25)
             t.setFont(font)
-            t.setPos(x+5,y+h-25)
             t.setParentItem(self.layer_static)
 
     def add_hatched(self, x, y, w, h, edge=QColor("black"), fill=QColor(220, 20, 60, 90)):
@@ -988,10 +954,10 @@ class ParkingLotUI(QWidget):
         # 입출차 구역 추가
         self.add_block(0, 0, 400, 400, c_io, "입출차")
         
-        # 목적지 블록들 (입출차 제외) - 식당 제외
+        # 목적지 블록들 (입출차 제외) - 문화시설 입구 제외
         base = [
-            (-400, 1600, 400, 400, c_emp, "미용실"),  # 미용실
-            (1600, 1600, 400, 400, c_emp, "마트"),    # 마트
+            (-400, 1600, 400, 400, c_emp, "백화점 본관 입구"),  # 백화점 본관 입구
+            (1600, 1600, 400, 400, c_emp, "영화관 입구"),    # 영화관 입구
             (550, 1050, 800, 300, c_obs, "장애물")    # 금지구역
         ]
         
@@ -1020,8 +986,8 @@ class ParkingLotUI(QWidget):
         # 주차구역을 추가
         for x, y, w, h, c, l in parking_spots: self.add_block(x, y, w, h, c, l)
         
-        # 식당 추가
-        self.add_block(1600, 400, 400, 400, c_emp, "식당")
+        # 문화시설 입구 추가
+        self.add_block(1600, 400, 400, 400, c_emp, "문화시설 입구")
         
         # 7번 주차구역 추가
         self.add_block(1600, 800, 400, 400, c_dis, "장애인")
@@ -1044,9 +1010,9 @@ class ParkingLotUI(QWidget):
         for x,y,w,h,c,l in [
             (550,1050,800,300,0,""),      # 금지구역
             (400,0,1600,400,0,""),        # 하단 통행금지구역
-            (1600,400,400,400,0,""),      # 식당
-            (1600,1600,400,400,0,""),     # 마트
-            (-400,1600,400,400,0,""),     # 미용실
+            (1600,400,400,400,0,""),      # 문화시설 입구
+            (1600,1600,400,400,0,""),     # 영화관 입구
+            (-400,1600,400,400,0,""),     # 백화점 본관 입구
             (0,0,400,400,0,"")            # 입출차
         ]: 
             block_rect(x,y,w,h)
@@ -1201,13 +1167,13 @@ class ParkingLotUI(QWidget):
             start = pts[i]
             end = pts[i + 1]
             
-            # 글로우 효과 (50픽셀 여유를 위해 더 넓게)
-            for width, alpha in [(self.PATH_WIDTH + 62, 60), (self.PATH_WIDTH + 56, 100)]:
+            # 글로우 효과
+            for width, alpha in [(self.PATH_WIDTH + 12, 60), (self.PATH_WIDTH + 6, 100)]:
                 glow_pen = QPen(QColor(0,170,210,alpha), width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
                 self.scene.addLine(start.x(), start.y(), end.x(), end.y(), glow_pen).setParentItem(self.layer_path)
             
-            # 메인 경로 (50픽셀 여유를 위해 더 넓게)
-            main_pen = QPen(QColor(0,200,255), self.PATH_WIDTH + 50, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            # 메인 경로
+            main_pen = QPen(QColor(0,200,255), self.PATH_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             self.scene.addLine(start.x(), start.y(), end.x(), end.y(), main_pen).setParentItem(self.layer_path)
             
             # 중앙 라인
@@ -1344,342 +1310,6 @@ class ParkingLotUI(QWidget):
         speed = max(0, min(30, int(speed)))
         
         return speed
-
-    def check_path_deviation(self):
-        """경로 이탈을 감지하고 처리합니다."""
-        if not self.car.isVisible() or not self.full_path_points:
-            return
-        
-        car_pos = self.car.pos()
-        is_on_path = self.is_position_on_path(car_pos)
-        
-        if not is_on_path:
-            # 경로 이탈 중
-            if self.deviation_start_time is None:
-                self.deviation_start_time = time.time()
-                print(f"⚠️ 경로 이탈 감지 시작: ({car_pos.x():.1f}, {car_pos.y():.1f})")
-            else:
-                # 이탈 지속 시간 체크
-                deviation_duration = time.time() - self.deviation_start_time
-                if deviation_duration >= self.deviation_threshold and not self.is_deviating:
-                    self.is_deviating = True
-                    print(f"🚨 경로 이탈 {self.deviation_threshold}초 초과! 경로 재탐색을 시작합니다.")
-                    self.show_reroute_dialog()
-        else:
-            # 경로 복귀
-            if self.deviation_start_time is not None:
-                deviation_duration = time.time() - self.deviation_start_time
-                print(f"✅ 경로 복귀: 이탈 시간 {deviation_duration:.1f}초")
-                self.deviation_start_time = None
-                self.is_deviating = False
-
-    def is_position_on_path(self, position):
-        """현재 위치가 경로 위에 있는지 확인합니다."""
-        if len(self.full_path_points) < 2:
-            return True
-        
-        # 모든 경로 세그먼트에 대해 거리 계산
-        for i in range(len(self.full_path_points) - 1):
-            p1 = self.full_path_points[i]
-            p2 = self.full_path_points[i + 1]
-            
-            # 점과 선분 사이의 최단 거리 계산
-            distance = self.point_to_line_distance(position, p1, p2)
-            if distance <= self.path_margin:
-                return True
-        
-        return False
-
-    def point_to_line_distance(self, point, line_start, line_end):
-        """점과 선분 사이의 최단 거리를 계산합니다."""
-        # 선분의 벡터
-        line_vec = line_end - line_start
-        point_vec = point - line_start
-        
-        # 선분의 길이의 제곱
-        line_len_sq = QPointF.dotProduct(line_vec, line_vec)
-        
-        if line_len_sq == 0:
-            # 선분이 점인 경우
-            return sqrt((point.x() - line_start.x())**2 + (point.y() - line_start.y())**2)
-        
-        # 점을 선분에 투영한 비율
-        t = max(0, min(1, QPointF.dotProduct(point_vec, line_vec) / line_len_sq))
-        
-        # 선분 위의 가장 가까운 점
-        closest_point = line_start + t * line_vec
-        
-        # 거리 계산
-        return sqrt((point.x() - closest_point.x())**2 + (point.y() - closest_point.y())**2)
-
-    def show_reroute_dialog(self):
-        """경로 재탐색 팝업을 표시합니다."""
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("경로 재탐색")
-        msg_box.setText("경로를 이탈했습니다.\n경로를 재탐색하시겠습니까?")
-        msg_box.setInformativeText("현재 위치에서 가장 가까운 경로점을 찾아 새로운 경로를 생성합니다.")
-        msg_box.setIcon(QMessageBox.Warning)
-        
-        reroute_button = msg_box.addButton("경로 재탐색", QMessageBox.AcceptRole)
-        cancel_button = msg_box.addButton("취소", QMessageBox.RejectRole)
-        
-        msg_box.setDefaultButton(reroute_button)
-        
-        result = msg_box.exec_()
-        
-        if msg_box.clickedButton() == reroute_button:
-            self.perform_reroute()
-        else:
-            print("경로 재탐색이 취소되었습니다.")
-
-    def perform_reroute(self):
-        """경로 재탐색을 수행합니다."""
-        if not self.car.isVisible() or not self.full_path_points:
-            return
-        
-        car_pos = self.car.pos()
-        
-        # 현재 위치에서 가장 가까운 경로점 찾기
-        closest_point = self.find_closest_point_on_path(car_pos)
-        
-        if closest_point is None:
-            print("❌ 가장 가까운 경로점을 찾을 수 없습니다.")
-            return
-        
-        print(f"🔄 경로 재탐색 시작: 현재 위치 ({car_pos.x():.1f}, {car_pos.y():.1f})")
-        print(f"   가장 가까운 경로점: ({closest_point.x():.1f}, {closest_point.y():.1f})")
-        
-        # sender.py의 경로 재배정 로직에 따라 새로운 경로 생성
-        new_waypoints = self.generate_reroute_waypoints(closest_point)
-        
-        if new_waypoints:
-            # 새로운 경로로 업데이트
-            self.update_route_from_point(closest_point, new_waypoints)
-            print("✅ 경로 재탐색 완료")
-        else:
-            print("❌ 경로 재탐색 실패")
-
-    def find_closest_point_on_path(self, position):
-        """현재 위치에서 가장 가까운 경로점을 찾습니다."""
-        if len(self.full_path_points) < 2:
-            return None
-        
-        min_distance = float('inf')
-        closest_point = None
-        
-        # 모든 경로 세그먼트에 대해 가장 가까운 점 찾기
-        for i in range(len(self.full_path_points) - 1):
-            p1 = self.full_path_points[i]
-            p2 = self.full_path_points[i + 1]
-            
-            # 선분 위의 가장 가까운 점 계산
-            line_vec = p2 - p1
-            point_vec = position - p1
-            line_len_sq = QPointF.dotProduct(line_vec, line_vec)
-            
-            if line_len_sq == 0:
-                # 선분이 점인 경우
-                closest_on_segment = p1
-            else:
-                t = max(0, min(1, QPointF.dotProduct(point_vec, line_vec) / line_len_sq))
-                closest_on_segment = p1 + t * line_vec
-            
-            # 거리 계산
-            distance = sqrt((position.x() - closest_on_segment.x())**2 + 
-                          (position.y() - closest_on_segment.y())**2)
-            
-            if distance < min_distance:
-                min_distance = distance
-                closest_point = closest_on_segment
-        
-        return closest_point
-
-    def generate_reroute_waypoints(self, start_point):
-        """sender.py의 로직에 따라 재탐색 경로를 생성합니다."""
-        # sender.py의 MANDATORY_WAYPOINT와 동일
-        MANDATORY_WAYPOINT = [200, 925]
-        
-        # 현재 목적지가 무엇인지 파악 (마지막 웨이포인트)
-        if not self.full_path_points:
-            return None
-        
-        final_destination = self.full_path_points[-1]
-        
-        # sender.py의 주차구역별 waypoint 좌표와 동일
-        parking_waypoints = {
-            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
-            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
-            5: [1450, 1475],
-            # 주차구역 6-7 (우측, 위→아래)  
-            6: [1475, 1400], 7: [1475, 1000],
-            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
-            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
-        }
-        
-        # 목적지가 어떤 주차구역인지 찾기
-        target_parking_spot = None
-        for spot_num, coords in parking_waypoints.items():
-            if abs(final_destination.x() - coords[0]) < 10 and abs(final_destination.y() - coords[1]) < 10:
-                target_parking_spot = spot_num
-                break
-        
-        if target_parking_spot is None:
-            print("❌ 목적지 주차구역을 찾을 수 없습니다.")
-            return None
-        
-        # sender.py의 경로 생성 로직을 사용하여 새로운 경로 생성
-        new_waypoints = []
-        
-        if target_parking_spot == 1:  # 1번: 시작점 -> (200,1475)
-            if start_point.y() < 1475:  # 아직 위로 올라가야 함
-                new_waypoints.append([200, 1475])
-        elif target_parking_spot in [2, 3, 4, 5]:  # 2~5번: 시작점 -> (200, 1475) -> 최종 주차구역
-            if start_point.y() < 1475:  # 아직 위로 올라가야 함
-                new_waypoints.append([200, 1475])
-            if start_point.x() < parking_waypoints[target_parking_spot][0]:  # 아직 오른쪽으로 가야 함
-                new_waypoints.append(parking_waypoints[target_parking_spot])
-        elif target_parking_spot == 6:  # 6번: 시작점 -> (200, 1475) -> (1475, 1475) -> (1475, 1400)
-            if start_point.y() < 1475:
-                new_waypoints.append([200, 1475])
-            if start_point.x() < 1475:
-                new_waypoints.append([1475, 1475])
-            if start_point.y() > 1400:
-                new_waypoints.append([1475, 1400])
-        elif target_parking_spot == 7:  # 7번: 시작점 -> (1475, 925) -> (1475, 1000)
-            if start_point.x() < 1475:
-                new_waypoints.append([1475, 925])
-            if start_point.y() > 1000:
-                new_waypoints.append([1475, 1000])
-        elif target_parking_spot in [8, 9, 10, 11]:  # 8~11번: 시작점 -> 최종 주차구역
-            if start_point.x() < parking_waypoints[target_parking_spot][0]:
-                new_waypoints.append(parking_waypoints[target_parking_spot])
-        
-        return new_waypoints
-
-    def update_route_from_point(self, start_point, new_waypoints):
-        """지정된 시작점에서 새로운 경로로 업데이트합니다."""
-        if not new_waypoints:
-            return
-        
-        # 전체 경로 재구성: 시작점 + 새로운 웨이포인트들
-        waypoints_qpoints = [QPointF(p[0], p[1]) for p in new_waypoints]
-        self.full_path_points = [start_point] + waypoints_qpoints
-        
-        print(f"✅ 새로운 경로: {len(self.full_path_points)}개 포인트")
-        for i, point in enumerate(self.full_path_points):
-            print(f"  {i+1}. ({point.x():.1f}, {point.y():.1f})")
-        
-        # 기존 경로 클리어 후 새 경로 그리기
-        self.clear_path_layer()
-        self.draw_straight_path(self.full_path_points)
-        
-        # 경로 세그먼트 인덱스 리셋
-        self.current_path_segment_index = 0
-        
-        # HUD 업데이트
-        self.update_hud_from_car_position(self.car.pos())
-    
-    def manual_reroute(self):
-        """수동 경로 재생성 - sender_new.py와 통신하여 새로운 경로 요청"""
-        if not self.car.isVisible() or not self.full_path_points:
-            QMessageBox.warning(self, "경로 재생성 오류", "차량이 지도에 표시되지 않았거나 경로가 없습니다.")
-            return
-        
-        car_pos = self.car.pos()
-        
-        # 현재 목적지가 무엇인지 파악 (마지막 웨이포인트)
-        if not self.full_path_points:
-            QMessageBox.warning(self, "경로 재생성 오류", "경로 정보가 없습니다.")
-            return
-        
-        final_destination = self.full_path_points[-1]
-        
-        # 목적지가 어떤 주차구역인지 찾기
-        target_parking_spot = self.detect_parking_spot_from_coords(final_destination)
-        
-        if target_parking_spot is None:
-            QMessageBox.warning(self, "경로 재생성 오류", "목적지 주차구역을 찾을 수 없습니다.")
-            return
-        
-        # sender_new.py의 경로 재생성 로직을 사용하여 새로운 경로 생성
-        new_waypoints = self.generate_reroute_waypoints_from_position(car_pos, target_parking_spot)
-        
-        if new_waypoints:
-            # 새로운 경로로 업데이트
-            self.update_route_from_point(car_pos, new_waypoints)
-            QMessageBox.information(self, "경로 재생성", f"주차구역 {target_parking_spot}번으로의 새로운 경로가 생성되었습니다.")
-            print("✅ 수동 경로 재생성 완료")
-        else:
-            QMessageBox.warning(self, "경로 재생성 실패", "새로운 경로를 생성할 수 없습니다.")
-            print("❌ 수동 경로 재생성 실패")
-    
-    def detect_parking_spot_from_coords(self, coords):
-        """좌표를 기반으로 주차구역 번호 감지"""
-        x, y = coords.x(), coords.y()
-        
-        # 주차구역별 waypoint 좌표와 비교
-        parking_waypoints = {
-            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
-            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
-            5: [1450, 1475],
-            # 주차구역 6-7 (우측, 위→아래)  
-            6: [1475, 1400], 7: [1475, 1000],
-            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
-            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
-        }
-        
-        for spot_num, waypoint_coords in parking_waypoints.items():
-            if abs(x - waypoint_coords[0]) < 10 and abs(y - waypoint_coords[1]) < 10:
-                return spot_num
-        
-        return None
-    
-    def generate_reroute_waypoints_from_position(self, current_position, target_parking_spot):
-        """현재 위치에서 목적지로의 재탐색 경로를 생성합니다 (sender_new.py 로직 사용)"""
-        # sender.py의 주차구역별 waypoint 좌표와 동일
-        parking_waypoints = {
-            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
-            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
-            5: [1450, 1475],
-            # 주차구역 6-7 (우측, 위→아래)  
-            6: [1475, 1400], 7: [1475, 1000],
-            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
-            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
-        }
-        
-        target_waypoint = parking_waypoints.get(target_parking_spot)
-        if not target_waypoint:
-            return None
-        
-        new_waypoints = []
-        current_pos = [current_position.x(), current_position.y()]
-        
-        # 현재 위치를 고려한 경로 생성 (sender_new.py 로직과 동일)
-        if target_parking_spot == 1:  # 1번: 현재위치 -> (200,1475)
-            if current_pos[1] < 1475:  # 아직 위로 올라가야 함
-                new_waypoints.append(target_waypoint)
-        elif target_parking_spot in [2, 3, 4, 5]:  # 2~5번: 현재위치 -> (200, 1475) -> 최종 주차구역
-            if current_pos[1] < 1475:  # 아직 위로 올라가야 함
-                new_waypoints.append([200, 1475])
-            if current_pos[0] < target_waypoint[0]:  # 아직 오른쪽으로 가야 함
-                new_waypoints.append(target_waypoint)
-        elif target_parking_spot == 6:  # 6번: 현재위치 -> (200, 1475) -> (1475, 1475) -> (1475, 1400)
-            if current_pos[1] < 1475:
-                new_waypoints.append([200, 1475])
-            if current_pos[0] < 1475:
-                new_waypoints.append([1475, 1475])
-            if current_pos[1] > 1400:
-                new_waypoints.append([1475, 1400])
-        elif target_parking_spot == 7:  # 7번: 현재위치 -> (1475, 925) -> (1475, 1000)
-            if current_pos[0] < 1475:
-                new_waypoints.append([1475, 925])
-            if current_pos[1] > 1000:
-                new_waypoints.append([1475, 1000])
-        elif target_parking_spot in [8, 9, 10, 11]:  # 8~11번: 현재위치 -> 최종 주차구역
-            if current_pos[0] < target_waypoint[0]:
-                new_waypoints.append(target_waypoint)
-        
-        return new_waypoints
 
     def start_exit_scenario(self):
         """출차 시나리오 시작 - 시계방향으로 출차 경로 생성"""

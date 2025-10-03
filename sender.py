@@ -304,6 +304,48 @@ class DummyCarClient:
                 print("\n👋 프로그램을 종료합니다.")
                 return None
 
+    def generate_route_to_parking(self, parking_spot_num, parking_coords):
+        """주차구역으로의 경로를 생성합니다."""
+        # sender.py의 MANDATORY_WAYPOINT와 동일
+        MANDATORY_WAYPOINT = [200, 925]
+        
+        # sender.py의 주차구역별 waypoint 좌표와 동일
+        parking_waypoints = {
+            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
+            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
+            5: [1450, 1475],
+            # 주차구역 6-7 (우측, 위→아래)  
+            6: [1475, 1400], 7: [1475, 1000],
+            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
+            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
+        }
+        
+        target_waypoint = parking_waypoints.get(parking_spot_num)
+        if not target_waypoint:
+            print(f"❌ 주차구역 {parking_spot_num}번의 웨이포인트를 찾을 수 없습니다.")
+            return []
+        
+        waypoints = []
+        
+        # 주차구역별 경로 생성 로직
+        if parking_spot_num == 1:  # 1번: 입구 -> (200,1475)
+            waypoints.append(target_waypoint)
+        elif parking_spot_num in [2, 3, 4, 5]:  # 2~5번: 입구 -> (200, 1475) -> 최종 주차구역
+            waypoints.append([200, 1475])
+            waypoints.append(target_waypoint)
+        elif parking_spot_num == 6:  # 6번: 입구 -> (200, 1475) -> (1475, 1475) -> (1475, 1400)
+            waypoints.append([200, 1475])
+            waypoints.append([1475, 1475])
+            waypoints.append(target_waypoint)
+        elif parking_spot_num == 7:  # 7번: 입구 -> (1475, 925) -> (1475, 1000)
+            waypoints.append([1475, 925])
+            waypoints.append(target_waypoint)
+        elif parking_spot_num in [8, 9, 10, 11]:  # 8~11번: 입구 -> 최종 주차구역
+            waypoints.append(target_waypoint)
+        
+        print(f"🗺️ 주차구역 {parking_spot_num}번으로의 경로 생성: {waypoints}")
+        return waypoints
+
     def generate_reroute_waypoints(self, current_position, target_parking_spot):
         """현재 위치에서 목적지로의 재탐색 경로를 생성합니다."""
         # sender.py의 MANDATORY_WAYPOINT와 동일
