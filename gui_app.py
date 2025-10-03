@@ -40,7 +40,6 @@ def get_destination_name(destination_number):
 # Wi-Fi 통신 설정
 # ===================================================================
 WIFI_CONFIG = {
-    'target_ip': '192.168.204.151',
     'port': 7777
 }
 
@@ -612,9 +611,17 @@ class RegularVehicleResult(BaseScreen):
 # ❗ [수정] 메인 윈도우 (시그널-슬롯 연결)
 # ===================================================================
 class HyundaiStyleUI(QWidget):
-    def __init__(self):
+    def __init__(self, vehicle_ip=None):
         super().__init__()
-        self.wifi_sender = WifiSender(WIFI_CONFIG['target_ip'], WIFI_CONFIG['port'])
+        # main_launcher_sy.py에서 전달된 vehicle_ip를 우선 사용, 없으면 로컬 테스트용 기본값
+        if not vehicle_ip:
+            print("⚠️ 경고: ESP32 IP 주소 없이 HyundaiStyleUI가 생성되었습니다. (단독 테스트용)")
+            vehicle_ip = '127.0.0.1'
+        else:
+            print(f"🎯 ESP32 IP 주소 수신: {vehicle_ip}")
+
+        # 전달받은 IP로 WifiSender 초기화 (포트는 기존 설정 유지)
+        self.wifi_sender = WifiSender(vehicle_ip, WIFI_CONFIG['port'])
         
         # 👈 [추가] WifiSender의 신호를 메인 윈도우의 슬롯(메서드)에 연결
         self.wifi_sender.send_finished.connect(self.launch_parking_ui)
@@ -665,7 +672,7 @@ class HyundaiStyleUI(QWidget):
     def launch_parking_ui(self):
         """[슬롯] `send_finished` 신호를 받으면 호출됩니다."""
         try:
-            script_name = 'UWB_PARKING_UI_ver2.py'
+            script_name = 'UI_testing.py'
             print(f"\n✅ 전송 성공! 다음 UI 실행 시도: {script_name}")
             subprocess.Popen([sys.executable, script_name])
             QApplication.quit()

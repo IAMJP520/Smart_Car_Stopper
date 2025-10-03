@@ -8,7 +8,7 @@ from PyQt5.QtCore import QObject, pyqtSignal
 
 # 기존 UI 코드가 저장된 파일에서 HyundaiStyleUI 클래스를 가져옵니다.
 # 파일 이름이 gui_app.py 라고 가정합니다.
-from gui_app import HyundaiStyleUI 
+from gui_app_backup_added import HyundaiStyleUI 
 
 # --- ESP32 트리거 수신을 위한 클래스 ---
 class TriggerReceiver(QObject):

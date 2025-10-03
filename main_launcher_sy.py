@@ -9,7 +9,7 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt
 
 # gui_app.py 파일에서 HyundaiStyleUI 클래스를 가져옵니다.
-from gui_app_2 import HyundaiStyleUI 
+from gui_app import HyundaiStyleUI 
 
 # --- ESP32 트리거 수신을 위한 클래스 ---
 class TriggerReceiver(QObject):

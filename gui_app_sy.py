@@ -16,15 +16,8 @@ from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProp
                           QPointF, QSequentialAnimationGroup, QObject, pyqtSignal) # 👈 QObject, pyqtSignal 추가
 
 # ===================================================================
-# Wi-Fi 통신 설정
-# ===================================================================
-WIFI_CONFIG = {
-    'target_ip': '192.168.204.151',
-    'port': 7777
-}
-
-# ===================================================================
-# ❗ [수정] Wi-Fi 데이터 전송 클래스 (시그널-슬롯 방식 적용)
+# ❗ Wi-Fi 데이터 전송 클래스 (ESP32와의 통신을 담당)
+# main_launcher_sy.py로부터 받은 ESP32 IP 주소를 사용하여 데이터 전송
 # ===================================================================
 class WifiSender(QObject):
     send_finished = pyqtSignal()
@@ -34,7 +27,7 @@ class WifiSender(QObject):
         super().__init__()
         self.host = host
         self.port = port
-        print(f"📡 WifiSender 초기화 -> 대상: {self.host}:{self.port}")
+        print(f"📡 WifiSender 초기화 -> ESP32 연결 대상: {self.host}:{self.port}")
 
     def send_data(self, data):
         thread = threading.Thread(target=self._send_in_background, args=(data,))
@@ -46,16 +39,17 @@ class WifiSender(QObject):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(3)
-                print(f"연결 시도 중... -> {self.host}:{self.port}")
+                print(f"📡 ESP32 연결 시도 중... -> {self.host}:{self.port}")
                 s.connect((self.host, self.port))
                 data['timestamp'] = datetime.datetime.now().isoformat()
                 message = json.dumps(data)
                 s.sendall(message.encode('utf-8'))
-                print(f"🚀 데이터 전송 성공: {message}")
+                print(f"🚀 ESP32로 데이터 전송 성공!")
+                print(f"📤 전송 내용: {message}")
                 response = s.recv(1024)
-                print(f"📬 서버 응답: {response.decode('utf-8')}")
+                print(f"📬 ESP32 응답: {response.decode('utf-8')}")
         except Exception as e:
-            error_message = f"❌ 전송 오류: {e}"
+            error_message = f"❌ ESP32 통신 오류: {e}"
             print(error_message)
         finally:
             if error_message:
@@ -521,16 +515,18 @@ class RegularVehicleResult(BaseScreen):
 # ===================================================================
 # --- 메인 윈도우 ---
 class HyundaiStyleUI(QWidget):
-    # [수정] 생성자가 vehicle_ip를 키워드 인자로 받도록 변경
+    # main_launcher_sy.py로부터 ESP32 IP 주소를 받아 통신 설정
     def __init__(self, vehicle_ip=None, parent=None):
         super().__init__(parent)
         
         # vehicle_ip가 주어지지 않은 경우 (파일 단독 실행 테스트용)
         if not vehicle_ip:
-            print("⚠️ 경고: 차량 IP 주소 없이 HyundaiStyleUI가 생성되었습니다. (단독 테스트용)")
+            print("⚠️ 경고: ESP32 IP 주소 없이 HyundaiStyleUI가 생성되었습니다. (단독 테스트용)")
             vehicle_ip = '127.0.0.1' # 로컬호스트로 기본값 설정
+        else:
+            print(f"🎯 ESP32 IP 주소 수신: {vehicle_ip}")
             
-        # [수정] 전달받은 vehicle_ip를 사용하여 WifiSender를 초기화
+        # 전달받은 ESP32 IP 주소를 사용하여 WifiSender 초기화 (포트 7777)
         self.wifi_sender = WifiSender(vehicle_ip, 7777)
         
         self.wifi_sender.send_finished.connect(self.launch_parking_ui)
@@ -559,16 +555,28 @@ class HyundaiStyleUI(QWidget):
         self.showMaximized()
 
     def send_final_choice(self, vehicle_type, is_handicapped, preferred_spot):
+        """사용자가 선택한 정보를 ESP32로 전송합니다."""
         elec_val = "true" if vehicle_type == 'electric' else "false"
         disabled_val = "true" if is_handicapped else "false"
         preferred_map = {'regular': 'normal', 'electric': 'elec', 'disabled': 'disabled'}
         preferred_val = preferred_map.get(preferred_spot, 'normal')
-        final_data = {"elec": elec_val, "disabled": disabled_val, "preferred": preferred_val}
+        
+        final_data = {
+            "elec": elec_val, 
+            "disabled": disabled_val, 
+            "preferred": preferred_val
+        }
+        
+        print(f"📤 사용자 선택 정보 ESP32로 전송:")
+        print(f"   전기차 여부: {elec_val}")
+        print(f"   장애인 여부: {disabled_val}")
+        print(f"   선호 주차구역: {preferred_val}")
+        
         self.wifi_sender.send_data(final_data)
 
     def launch_parking_ui(self):
         try:
-            script_name = 'testing.py'
+            script_name = 'UI_testing.py'
             print(f"\n✅ 전송 성공! 다음 UI 실행 시도: {script_name}")
             subprocess.Popen([sys.executable, script_name])
             QApplication.quit()
