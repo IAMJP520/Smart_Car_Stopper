@@ -83,6 +83,8 @@ class WifiSender(QObject): # 👈 QObject 상속
 
                 s.sendall(message.encode('utf-8'))
                 print(f"🚀 데이터 전송 성공: {message}")
+                response = s.recv(1024)
+                print(f"📬 서버 응답: {response.decode('utf-8')}")
 
         except socket.timeout:
             error_message = f"❌ 전송 실패: 연결 시간 초과. {self.host} 기기가 켜져 있고 같은 네트워크에 있는지 확인하세요."

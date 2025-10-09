@@ -47,11 +47,13 @@ class WaypointReceiver:
         self.position_callback = callback_function
 
     def start_receiver(self):
-        """수신 서버 시작 (별도 스레드)"""
+        """수신 서버 시작 (별도 스레드) - 개선된 연결 안정성"""
         def server_thread():
             try:
                 self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)  # Keep-alive 추가
+                self.server_socket.settimeout(1.0)  # 타임아웃 설정
                 self.server_socket.bind((self.host, self.port))
                 self.server_socket.listen(5)
                 print(f"✅ 서버가 {self.host}:{self.port}에서 대기 중...")
@@ -61,35 +63,93 @@ class WaypointReceiver:
                     try:
                         client_socket, addr = self.server_socket.accept()
                         print(f"🔗 클라이언트 연결됨: {addr}")
-                        self.handle_connection(client_socket)
+                        
+                        # 연결별로 별도 스레드에서 처리 (동시 연결 지원)
+                        threading.Thread(
+                            target=self.handle_connection, 
+                            args=(client_socket,), 
+                            daemon=True,
+                            name=f"ClientHandler-{addr[0]}:{addr[1]}"
+                        ).start()
+                        
+                    except socket.timeout:
+                        # 타임아웃은 정상적인 상황, 계속 대기
+                        continue
                     except Exception as e:
                         if self.running:
                             print(f"❌ 연결 오류: {e}")
                         break
             except Exception as e:
                 print(f"❌ 서버 시작 오류: {e}")
+            finally:
+                if self.server_socket:
+                    try:
+                        self.server_socket.close()
+                    except:
+                        pass
 
-        threading.Thread(target=server_thread, daemon=True).start()
+        threading.Thread(target=server_thread, daemon=True, name="WaypointReceiver").start()
 
     def handle_connection(self, client_socket):
-        """클라이언트 연결 처리"""
+        """클라이언트 연결 처리 - 개선된 JSON 파싱"""
         try:
+            buffer = ""
             while self.running:
-                data = client_socket.recv(1024).decode('utf-8')
+                data = client_socket.recv(4096).decode('utf-8')  # 버퍼 크기 증가
                 if not data:
                     break
-                try:
-                    for chunk in data.strip().split('}{'):
-                        if not chunk.startswith('{'): chunk = '{' + chunk
-                        if not chunk.endswith('}'): chunk = chunk + '}'
+                
+                buffer += data
+                print(f"📥 수신된 데이터 (길이: {len(data)}): {data[:100]}...")  # 디버깅용
+                
+                # 완전한 JSON 메시지들을 처리
+                while buffer:
+                    try:
+                        # JSON 객체의 시작과 끝 찾기
+                        start = buffer.find('{')
+                        if start == -1:
+                            buffer = ""
+                            break
                         
-                        message = json.loads(chunk)
+                        # 중괄호 카운팅으로 완전한 JSON 찾기
+                        brace_count = 0
+                        end = -1
+                        for i, char in enumerate(buffer[start:], start):
+                            if char == '{':
+                                brace_count += 1
+                            elif char == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    end = i
+                                    break
+                        
+                        if end == -1:
+                            # 완전한 JSON이 없음, 더 많은 데이터 대기
+                            print("⏳ 완전한 JSON을 기다리는 중...")
+                            break
+                        
+                        # 완전한 JSON 추출
+                        json_str = buffer[start:end+1]
+                        buffer = buffer[end+1:]
+                        
+                        print(f"🔍 파싱할 JSON: {json_str}")
+                        message = json.loads(json_str)
                         self.process_waypoint_data(message)
+                        
                         response = {"status": "received", "timestamp": datetime.now().isoformat()}
                         client_socket.send(json.dumps(response).encode('utf-8'))
-
-                except json.JSONDecodeError:
-                    print(f"❌ 잘못된 JSON 데이터: {data}")
+                        print("✅ JSON 처리 완료 및 응답 전송")
+                        
+                    except json.JSONDecodeError as e:
+                        print(f"❌ JSON 파싱 오류: {e}")
+                        print(f"   문제가 된 데이터: {json_str}")
+                        # 잘못된 JSON은 버리고 계속 진행
+                        buffer = buffer[end+1:] if end != -1 else ""
+                        break
+                    except Exception as e:
+                        print(f"❌ 메시지 처리 오류: {e}")
+                        break
+                        
         except Exception as e:
             print(f"❌ 데이터 수신 오류: {e}")
         finally:
@@ -97,18 +157,50 @@ class WaypointReceiver:
             print("📱 클라이언트 연결 종료")
 
     def process_waypoint_data(self, data):
-        """수신된 데이터 처리 (경로 또는 위치)"""
+        """수신된 데이터 처리 (경로 또는 위치) - 개선된 로깅"""
+        print(f"📥 수신된 원본 데이터: {data}")  # 디버깅용
+        
+        if not isinstance(data, dict):
+            print(f"❌ 잘못된 데이터 형식: {type(data)}")
+            return
+            
         msg_type = data.get('type')
         
         # 경로 할당 메시지 처리
         if msg_type == 'waypoint_assignment':
             waypoints = data.get('waypoints', [])
             print(f"\n🎯 새로운 waypoint 수신: {waypoints}")
+            print(f"📊 웨이포인트 개수: {len(waypoints)}")
+            
+            # 웨이포인트 유효성 검사
+            if not isinstance(waypoints, list):
+                print(f"❌ 웨이포인트가 리스트가 아님: {type(waypoints)}")
+                return
+                
+            if len(waypoints) == 0:
+                print("⚠️ 빈 웨이포인트 리스트 수신")
+                return
+                
+            # 각 웨이포인트 유효성 검사
+            for i, wp in enumerate(waypoints):
+                if not isinstance(wp, list) or len(wp) != 2:
+                    print(f"❌ 잘못된 웨이포인트 형식 [{i}]: {wp}")
+                    return
+                try:
+                    float(wp[0])
+                    float(wp[1])
+                except (ValueError, TypeError):
+                    print(f"❌ 웨이포인트 좌표가 숫자가 아님 [{i}]: {wp}")
+                    return
+            
             if self.waypoint_callback:
                 self.waypoint_callback(waypoints)
+                print("✅ 웨이포인트 콜백 호출 완료")
+            else:
+                print("❌ waypoint_callback이 설정되지 않음")
             print("=" * 50)
             
-        # [수정] 실시간 위치 메시지 처리 - 송신 코드의 형식에 맞춤
+        # 실시간 위치 메시지 처리
         elif msg_type == 'real_time_position':
             x = data.get('x')
             y = data.get('y')
@@ -116,12 +208,26 @@ class WaypointReceiver:
             
             print(f"📍 실시간 위치 수신 - Tag {tag_id}: ({x}, {y})")
             
-            if x is not None and y is not None:
-                position = [float(x), float(y)]
-                if self.position_callback:
-                    self.position_callback(position)
-            else:
-                print(f"❌ 잘못된 위치 데이터: x={x}, y={y}")
+            # 좌표 유효성 검사
+            try:
+                if x is not None and y is not None:
+                    x_float = float(x)
+                    y_float = float(y)
+                    position = [x_float, y_float]
+                    
+                    if self.position_callback:
+                        self.position_callback(position)
+                        print("✅ 위치 콜백 호출 완료")
+                    else:
+                        print("❌ position_callback이 설정되지 않음")
+                else:
+                    print(f"❌ 잘못된 위치 데이터: x={x}, y={y}")
+            except (ValueError, TypeError) as e:
+                print(f"❌ 좌표 변환 오류: {e}, x={x}, y={y}")
+                
+        else:
+            print(f"⚠️ 알 수 없는 메시지 타입: {msg_type}")
+            print(f"   지원되는 타입: 'waypoint_assignment', 'real_time_position'")
 
     def stop(self):
         """수신 서버 중지"""
@@ -789,6 +895,7 @@ class ParkingLotUI(QWidget):
         
         # 주차구역 블록들을 저장할 딕셔너리 추가
         self.parking_spots = {}  # 주차구역 번호 -> QGraphicsRectItem 매핑
+        self.current_parking_spot = None  # 현재 주차된 구역 번호 추적
         
         self.build_static_layout()
         self.build_occupancy()
@@ -822,8 +929,46 @@ class ParkingLotUI(QWidget):
         """[x, y] 좌표를 받아 차량의 위치를 업데이트합니다."""
         if not (isinstance(position, list) and len(position) == 2):
             return
-        new_pos = QPointF(position[0], position[1])
+        
+        x, y = position[0], position[1]
+        
+        # (9000, 9000) 좌표는 출차 신호로 처리
+        if x == 9000 and y == 9000:
+            print("🚗 출차 신호 감지: (9000, 9000) 좌표 수신")
+            self.handle_car_exit()
+            return
+        
+        new_pos = QPointF(x, y)
         self.car.setPos(new_pos)
+
+    def handle_car_exit(self):
+        """차량 출차 처리 - 차량 제거 및 상태 초기화"""
+        print("🚗 차량 출차 처리 시작")
+        
+        # 차량을 UI에서 숨김
+        if self.car.isVisible():
+            self.car.hide()
+            print("✅ 차량을 UI에서 제거했습니다")
+        
+        # 현재 주차구역이 있다면 색상 복원
+        if hasattr(self, 'current_parking_spot') and self.current_parking_spot:
+            self.restore_parking_spot_color(self.current_parking_spot)
+            print(f"✅ 주차구역 {self.current_parking_spot}번 색상을 복원했습니다")
+            self.current_parking_spot = None
+        
+        # 경로 초기화
+        self.clear_path_layer()
+        self.full_path_points = []
+        self.current_path_segment_index = 0
+        self.is_exit_scenario = False
+        
+        # HUD 초기화
+        self.hud.update_navigation_info([])
+        
+        # 웨이포인트 초기화
+        self.received_waypoints = []
+        
+        print("✅ 차량 출차 처리 완료 - 모든 상태가 초기화되었습니다")
 
     def detect_parking_spot_from_waypoint(self, waypoint):
         """웨이포인트 좌표를 기반으로 주차구역 번호 감지"""
@@ -926,6 +1071,7 @@ class ParkingLotUI(QWidget):
             if destination_parking_spot:
                 print(f"🎯 마지막 웨이포인트는 주차구역 {destination_parking_spot}번 입니다. 색상을 주황색으로 변경합니다.")
                 self.change_parking_spot_color(destination_parking_spot, "orange")
+                self.current_parking_spot = destination_parking_spot  # 현재 주차구역 추적
             else:
                 print(f"📍 마지막 웨이포인트 ({last_waypoint})는 주차구역이 아닙니다.")
         

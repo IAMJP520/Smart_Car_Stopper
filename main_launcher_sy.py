@@ -49,7 +49,6 @@ class TriggerReceiver(QObject):
     def _run_server(self):
         """서버 메인 루프"""
         try:
-            
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.server_socket.bind((self.host, self.port))
@@ -130,10 +129,10 @@ class AppController(QObject):
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+    
+    app = QApplication(sys.argv)
     font = QFont("Malgun Gothic")
     font.setPointSize(11)
     app.setFont(font)
