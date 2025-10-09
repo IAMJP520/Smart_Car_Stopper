@@ -1,13 +1,13 @@
 // ================================================================
-//   입출차 차단기 ESP32 코드 (V4.6.4 - 광고 타임아웃 로직)
+//   입출차 차단기 ESP32 코드 (V4.15.0 - 주기적 센서 값 로깅)
 //
-// - [핵심] 차량이 근접하면 광고를 시작하고, 2초 이상 멀어지면
-//          광고를 자동으로 중단하는 타임아웃 기능 추가.
-// - [수정] 광고 타임아웃 관리를 위한 전역 변수 추가.
+// - [추가] 1초마다 두 초음파 센서의 현재 거리 값을 시리얼 모니터에 출력하는 디버깅 기능
+// - [유지] 실패한 측정값을 배제하는 getRobustDistance 함수 사용
+// - [유지] 시간 기반 이탈 감지 및 쿨다운 로직
 // ================================================================
 
 // ========================[ 기능 활성화 스위치 ]========================
-#define USE_MICRO_ROS
+#define USE_MICRO_ROS // micro-ROS 없이 단독 테스트 시 이 줄을 주석 처리하세요.
 // =================================================================
 
 #include <BLEDevice.h>
@@ -16,6 +16,8 @@
 #include <BLE2902.h>
 #include <ESP32Servo.h>
 #include <ArduinoJson.h>
+#include <vector>
+#include <algorithm> // for std::sort
 
 #ifdef USE_MICRO_ROS
 #include <micro_ros_arduino.h>
@@ -31,7 +33,7 @@
 #endif
 
 // --- 하드웨어 핀 설정 ---
-#define ENTRY_BARRIER_GPIO 17
+#define ENTRY_BARRIER_GPIO 18
 #define EXIT_BARRIER_GPIO 19
 #define SERVO_CLOSED_ANGLE 0
 #define SERVO_OPEN_ANGLE 90
@@ -43,17 +45,18 @@
 #define EXIT_ULTRASONIC_ECHO_PIN  26
 
 // --- 설정값 ---
-const unsigned long SENSOR_STABILIZATION_DELAY = 500;
-const float VEHICLE_PASSED_DISTANCE = 50.0;
-const float VEHICLE_APPROACH_DISTANCE = 50.0;
 const int SERVO_SPEED_DELAY = 15;
-const unsigned long ADVERTISING_TIMEOUT = 2000; // [추가] 광고 중단 타임아웃 (ms)
+const float VEHICLE_DETECT_DISTANCE = 15.0; 
+const float VEHICLE_GONE_DISTANCE   = 30.0; 
+const float VEHICLE_PASSED_DISTANCE = 15.0;
+const unsigned long GATE_COOLDOWN_MS = 2000;
+const unsigned long GONE_CONFIRM_MS = 1000;
 
 // --- BLE 설정 ---
 #define DEVICE_NAME "ParkingBarrier_System"
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define PC_SERVICE_UUID        "a2b8915e-993a-4f21-91a6-575355a2c4e7"
+#define PC_SERVICE_UUID         "a2b8915e-993a-4f21-91a6-575355a2c4e7"
 #define PC_CHARACTERISTIC_UUID "a2b8915e-993a-4f21-91a6-575355a2c4e8"
 #define ROS_STATUS_UUID        "a2b8915e-993a-4f21-91a6-575355a2c4e9"
 #define LOG_UUID               "a2b8915e-993a-4f21-91a6-575355a2c4ea"
@@ -63,6 +66,11 @@ const unsigned long ADVERTISING_TIMEOUT = 2000; // [추가] 광고 중단 타임
 #define CMD_ENTRY_INFO 0x10
 #define CMD_INFO_REQUEST 0x15
 #define CMD_EXIT_INFO 0x16
+
+// 재연결 방지를 위한 게이트 상태 정의
+enum GateState { STATE_IDLE, STATE_DETECTED, STATE_PROCESSING };
+GateState entryGateState = STATE_IDLE;
+GateState exitGateState = STATE_IDLE;
 
 #ifdef USE_MICRO_ROS
 rcl_allocator_t allocator;
@@ -84,42 +92,31 @@ BLECharacteristic* pRosStatusCharacteristic = nullptr;
 BLECharacteristic* pLogCharacteristic = nullptr;
 Servo entryServo;
 Servo exitServo;
-
 volatile int entryServoTargetAngle = SERVO_CLOSED_ANGLE;
 volatile int exitServoTargetAngle = SERVO_CLOSED_ANGLE;
-
-volatile bool entryGateOpenRequest = false;
-volatile bool exitGateOpenRequest = false;
-
+volatile bool entryGateCloseRequest = false;
+volatile bool exitGateCloseRequest = false;
+bool isAdvertisingActive = false;
 bool led_timer_active = false;
 unsigned long led_timer_start_time = 0;
 const unsigned long led_on_duration = 3000;
-
 bool pcClientConnected = false;
 bool isVehicleConnected = false;
-bool isAdvertising = false;
 uint16_t currentVehicleConnId = 0;
 uint16_t lastConnectedConnId = 0;
-unsigned long vehicleLastFarTime = 0; // [추가] 차량이 멀어진 시간 기록
-
 String currentState = "BOOTING";
 enum GateContext { CONTEXT_NONE, CONTEXT_ENTRY, CONTEXT_EXIT };
 GateContext currentGateContext = CONTEXT_NONE;
-
-bool entryBarrierIsOpen = false;
-bool exitBarrierIsOpen = false;
+volatile bool entryBarrierIsOpen = false;
+volatile bool exitBarrierIsOpen = false;
 unsigned long barrierLastOpenedTime = 0;
-
 bool shouldDisconnectVehicle = false;
-
 struct VehicleInfo {
   String vehicleId = "", type = "", disabledType = "", preferred = "", guiMac = "";
   uint8_t tagId = 0, destination = 0;
 } currentVehicle;
-
 volatile bool entryVehiclePassed = false;
 volatile bool exitVehiclePassed = false;
-
 struct SensorState {
   bool vehicleUnderSensor = false;
   unsigned long vehicleLeftTime = 0;
@@ -127,6 +124,14 @@ struct SensorState {
 };
 SensorState entrySensorState;
 SensorState exitSensorState;
+unsigned long entryGateCooldownUntil = 0;
+unsigned long exitGateCooldownUntil = 0;
+unsigned long entryGoneConfirmStart = 0;
+unsigned long exitGoneConfirmStart = 0;
+String lastLogMessage = "";
+unsigned long lastLogTime = 0;
+unsigned long lastSensorPrintTime = 0; // [추가] 센서 값 주기적 출력용 타이머
+
 
 // --- 함수 미리 선언 ---
 void log_message(const char* format, ...);
@@ -136,9 +141,9 @@ void controlBarrier(const char* barrier, const char* action);
 void requestVehicleDisconnect();
 void sendPacketToVehicle(uint8_t cmd, uint8_t* data, uint8_t len);
 float measureDistance(uint8_t trigPin, uint8_t echoPin);
+float getRobustDistance(uint8_t trigPin, uint8_t echoPin);
 void publishBarrierClosed(const char* barrierType);
 bool detectVehiclePassage(uint8_t trigPin, uint8_t echoPin, SensorState& state);
-
 #ifdef USE_MICRO_ROS
 void error_loop();
 void initMicroROS();
@@ -148,6 +153,7 @@ void publishBarrierEvent(const char* gate, const char* state);
 void barrier_control_callback(const void * msgin);
 #endif
 
+// --- 태스크 및 콜백 ---
 void servoTask(void *pvParameters) {
     log_message("   -> Servo control task started on Core 1.\n");
     int currentEntryAngle = SERVO_CLOSED_ANGLE;
@@ -182,12 +188,10 @@ void ultrasonicTask(void *pvParameters) {
   }
 }
 
-// --- BLE 콜백 클래스 정의 ---
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
     log_message("\n>> BLE Client Connected (Conn ID: %d)\n", param->connect.conn_id);
     lastConnectedConnId = param->connect.conn_id;
-    isAdvertising = false;
   }
   void onDisconnect(BLEServer* pServer) {
     log_message("\n>> A BLE Client Disconnected.\n");
@@ -221,8 +225,40 @@ class VehicleCharacteristicCallbacks: public BLECharacteristicCallbacks {
       print_packet("[RECV_VEHICLE_BLE]", data, len);
       uint8_t cmd = data[1];
 
-      if (cmd == CMD_ENTRY_INFO) {
+      if (cmd == CMD_READY_SIGNAL) {
         currentGateContext = CONTEXT_ENTRY;
+        if(entryGateState == STATE_DETECTED) {
+            log_message("   -> Entry gate state -> PROCESSING\n");
+            entryGateState = STATE_PROCESSING;
+        }
+        updateState("READY_RECEIVED");
+        log_message("   -> [Entry] Vehicle Ready Signal. Requesting info.\n");
+        sendPacketToVehicle(CMD_INFO_REQUEST, nullptr, 0);
+      }
+      else if (cmd == CMD_EXIT_INFO) {
+        currentGateContext = CONTEXT_EXIT;
+        if(exitGateState == STATE_DETECTED) {
+            log_message("   -> Exit gate state -> PROCESSING\n");
+            exitGateState = STATE_PROCESSING;
+        }
+        updateState("EXIT_INFO_RECEIVED");
+        char* vehicleId = (char*)&data[3];
+        int vehicleIdLen = strlen(vehicleId);
+        currentVehicle.vehicleId = String(vehicleId);
+        currentVehicle.tagId = data[3 + vehicleIdLen + 1];
+        log_message("   -> [Exit] Parsed: ID=%s, Tag=%d\n", currentVehicle.vehicleId.c_str(), currentVehicle.tagId);
+        
+        #ifdef USE_MICRO_ROS
+          publishExitRequest(currentVehicle.tagId);
+        #else
+          log_message("   -> [DEBUG_MODE] ROS disabled. Simulating server approval...\n");
+          delay(1000); 
+          log_message("   -> [DEBUG_MODE] Simulated approval received. Opening exit barrier.\n");
+          controlBarrier("exit", "open");
+        #endif
+        requestVehicleDisconnect();
+      }
+      else if (cmd == CMD_ENTRY_INFO) {
         updateState("ENTRY_INFO_RECEIVED");
         char* vehicleId = (char*)&data[3];
         int vehicleIdLen = strlen(vehicleId);
@@ -232,40 +268,23 @@ class VehicleCharacteristicCallbacks: public BLECharacteristicCallbacks {
         uint8_t disabledType = data[3 + vehicleIdLen + 3];
         uint8_t preferred = data[3 + vehicleIdLen + 4];
         currentVehicle.destination = data[3 + vehicleIdLen + 5];
-
         currentVehicle.type = (vehicleType == 0x01) ? "electric" : "regular";
         currentVehicle.disabledType = (disabledType == 0x01) ? "disabled" : "normal";
         if (preferred == 1) currentVehicle.preferred = "disabled";
         else if (preferred == 2) currentVehicle.preferred = "elec";
         else currentVehicle.preferred = "normal";
-
         log_message("   -> [Entry] Parsed: ID=%s, Tag=%d, Dest=%d\n",
                     currentVehicle.vehicleId.c_str(), currentVehicle.tagId, currentVehicle.destination);
+        
         #ifdef USE_MICRO_ROS
           publishEntryRequest(currentVehicle);
+        #else
+          log_message("   -> [DEBUG_MODE] ROS disabled. Simulating server authentication...\n");
+          delay(2000);
+          log_message("   -> [DEBUG_MODE] Simulated approval received. Opening entry barrier.\n");
+          controlBarrier("entry", "open");
         #endif
         requestVehicleDisconnect();
-      }
-      else if (cmd == CMD_EXIT_INFO) {
-        currentGateContext = CONTEXT_EXIT;
-        updateState("EXIT_INFO_RECEIVED");
-        char* vehicleId = (char*)&data[3];
-        int vehicleIdLen = strlen(vehicleId);
-        currentVehicle.vehicleId = String(vehicleId);
-        currentVehicle.tagId = data[3 + vehicleIdLen + 1];
-
-        log_message("   -> [Exit] Parsed: ID=%s, Tag=%d\n",
-                    currentVehicle.vehicleId.c_str(), currentVehicle.tagId);
-        #ifdef USE_MICRO_ROS
-          publishExitRequest(currentVehicle.tagId);
-        #endif
-        requestVehicleDisconnect();
-      }
-      else if (cmd == CMD_READY_SIGNAL) {
-        currentGateContext = CONTEXT_ENTRY;
-        updateState("READY_RECEIVED");
-        log_message("   -> [Entry] Vehicle Ready Signal. Requesting info.\n");
-        sendPacketToVehicle(CMD_INFO_REQUEST, nullptr, 0);
       }
     }
   }
@@ -281,34 +300,29 @@ class PCCharacteristicCallbacks: public BLECharacteristicCallbacks {
     if (value.length() > 0) {
       log_message("   -> PC Command received: %s\n", value.c_str());
       if (value == "entry_open") controlBarrier("entry", "open");
-      else if (value == "entry_close") controlBarrier("entry", "close");
+      else if (value == "entry_close") entryGateCloseRequest = true;
       else if (value == "exit_open") controlBarrier("exit", "open");
-      else if (value == "exit_close") controlBarrier("exit", "close");
+      else if (value == "exit_close") exitGateCloseRequest = true;
     }
   }
 };
 
 #ifdef USE_MICRO_ROS
-void error_loop() {
-  while(1) {
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-    delay(100);
-  }
-}
+void error_loop() { while(1) { digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); delay(100); } }
 #endif
 
 // --- 기본 실행 함수 ---
 void setup() {
   Serial.begin(115200);
-  log_message("\n\n===== System Booting... (V4.6.4 - Advertising Timeout) =====\n");
+  Serial2.begin(115200, SERIAL_8N1, 16, 17);
+  
+  log_message("\n\n===== System Booting... (V4.15.0 - Periodic Logging) =====\n");
   updateState("INITIALIZING");
-
   log_message("   -> Attaching servos...\n");
   entryServo.attach(ENTRY_BARRIER_GPIO);
   exitServo.attach(EXIT_BARRIER_GPIO);
   entryServo.write(SERVO_CLOSED_ANGLE);
   exitServo.write(SERVO_CLOSED_ANGLE);
-
   log_message("   -> Initializing GPIO...\n");
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
@@ -316,54 +330,35 @@ void setup() {
   pinMode(ENTRY_ULTRASONIC_ECHO_PIN, INPUT);
   pinMode(EXIT_ULTRASONIC_TRIG_PIN, OUTPUT);
   pinMode(EXIT_ULTRASONIC_ECHO_PIN, INPUT);
-
   log_message("   -> Initializing BLE...\n");
   BLEDevice::init(DEVICE_NAME);
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
-
   log_message("   -> Creating BLE Services...\n");
   BLEService* pVehicleService = pServer->createService(SERVICE_UUID);
-  pCharacteristic = pVehicleService->createCharacteristic(
-                      CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY
-                    );
+  pCharacteristic = pVehicleService->createCharacteristic(CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
   pCharacteristic->setCallbacks(new VehicleCharacteristicCallbacks());
   pCharacteristic->addDescriptor(new BLE2902());
   pVehicleService->start();
-
   BLEService* pPCService = pServer->createService(PC_SERVICE_UUID);
-  pPCCharacteristic = pPCService->createCharacteristic(
-                        PC_CHARACTERISTIC_UUID,
-                        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_READ
-                      );
+  pPCCharacteristic = pPCService->createCharacteristic(PC_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_READ);
   pPCCharacteristic->setCallbacks(new PCCharacteristicCallbacks());
-
-  pRosStatusCharacteristic = pPCService->createCharacteristic(
-                                ROS_STATUS_UUID,
-                                BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-                              );
+  pRosStatusCharacteristic = pPCService->createCharacteristic(ROS_STATUS_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   pRosStatusCharacteristic->setValue("1");
-
-  pLogCharacteristic = pPCService->createCharacteristic(
-                         LOG_UUID,
-                         BLECharacteristic::PROPERTY_NOTIFY
-                       );
+  pLogCharacteristic = pPCService->createCharacteristic(LOG_UUID, BLECharacteristic::PROPERTY_NOTIFY);
   pLogCharacteristic->addDescriptor(new BLE2902());
   pPCService->start();
-
   #ifdef USE_MICRO_ROS
   log_message("   -> Initializing Micro-ROS...\n");
   initMicroROS();
   #endif
-
   xTaskCreatePinnedToCore(servoTask, "ServoTask", 2048, NULL, 1, NULL, 1);
   xTaskCreatePinnedToCore(ultrasonicTask, "UltrasonicTask", 4096, NULL, 1, NULL, 0);
-
   updateState("IDLE");
   BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->addServiceUUID(PC_SERVICE_UUID);
+  log_message("   -> System ready. Advertising is now controlled by state machine.\n");
 }
 
 void loop() {
@@ -371,46 +366,83 @@ void loop() {
   RCSOFTCHECK(rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10)));
   #endif
 
-  // [핵심 수정] 광고 시작 및 중단(타임아웃) 로직
-  if (!isVehicleConnected) {
-    bool isVehicleClose = (measureDistance(ENTRY_ULTRASONIC_TRIG_PIN, ENTRY_ULTRASONIC_ECHO_PIN) < VEHICLE_APPROACH_DISTANCE ||
-                           measureDistance(EXIT_ULTRASONIC_TRIG_PIN, EXIT_ULTRASONIC_ECHO_PIN) < VEHICLE_APPROACH_DISTANCE);
+  unsigned long currentTime = millis();
 
-    if (isVehicleClose) {
-      if (!isAdvertising) {
-        log_message("   -> Vehicle detected nearby. Starting BLE advertising...\n");
-        updateState("ADVERTISING");
-        BLEDevice::getAdvertising()->start();
-        isAdvertising = true;
+  // -------------------- Entry Gate State Machine (Time-Based Confirmation) --------------------
+  float entryDist = getRobustDistance(ENTRY_ULTRASONIC_TRIG_PIN, ENTRY_ULTRASONIC_ECHO_PIN);
+  switch (entryGateState) {
+    case STATE_IDLE:
+      if (entryDist < VEHICLE_DETECT_DISTANCE && currentTime > entryGateCooldownUntil) {
+        entryGateState = STATE_DETECTED;
+        log_message("\n[STATE] Entry Gate: IDLE -> DETECTED (New Vehicle)\n");
       }
-      vehicleLastFarTime = 0; // 차량이 가까우므로 타이머 리셋
-    } else { // 차량이 멀리 있을 때
-      if (isAdvertising) {
-        if (vehicleLastFarTime == 0) {
-          vehicleLastFarTime = millis(); // 타이머 시작
-        } else if (millis() - vehicleLastFarTime > ADVERTISING_TIMEOUT) {
-          log_message("   -> Vehicle has been away for >2s. Stopping BLE advertising...\n");
-          updateState("IDLE");
-          BLEDevice::getAdvertising()->stop();
-          isAdvertising = false;
-          vehicleLastFarTime = 0; // 타이머 리셋
+      break;
+    case STATE_DETECTED:
+    case STATE_PROCESSING:
+      if (entryDist > VEHICLE_GONE_DISTANCE) {
+        if (entryGoneConfirmStart == 0) { 
+          entryGoneConfirmStart = currentTime;
+        } else if (currentTime - entryGoneConfirmStart > GONE_CONFIRM_MS) { 
+          const char* prevState = (entryGateState == STATE_DETECTED) ? "DETECTED" : "PROCESSING";
+          entryGateState = STATE_IDLE;
+          entryGateCooldownUntil = currentTime + GATE_COOLDOWN_MS;
+          log_message("\n[STATE] Entry Gate: %s -> IDLE (Vehicle Left Confirmed, Cooldown for 2s)\n", prevState);
+          entryGoneConfirmStart = 0;
         }
+      } else { 
+        entryGoneConfirmStart = 0;
       }
-    }
+      break;
   }
 
-  if (entryGateOpenRequest) {
-    log_message("   -> Entry gate open authorized. Opening barrier immediately.\n");
-    controlBarrier("entry", "open");
-    entryGateOpenRequest = false;
+  // -------------------- Exit Gate State Machine (Time-Based Confirmation) --------------------
+  float exitDist = getRobustDistance(EXIT_ULTRASONIC_TRIG_PIN, EXIT_ULTRASONIC_ECHO_PIN);
+  switch (exitGateState) {
+    case STATE_IDLE:
+      if (exitDist < VEHICLE_DETECT_DISTANCE && currentTime > exitGateCooldownUntil) {
+        exitGateState = STATE_DETECTED;
+        log_message("\n[STATE] Exit Gate: IDLE -> DETECTED (New Vehicle)\n");
+      }
+      break;
+    case STATE_DETECTED:
+    case STATE_PROCESSING:
+      if (exitDist > VEHICLE_GONE_DISTANCE) {
+        if (exitGoneConfirmStart == 0) { 
+          exitGoneConfirmStart = currentTime;
+        } else if (currentTime - exitGoneConfirmStart > GONE_CONFIRM_MS) { 
+          const char* prevState = (exitGateState == STATE_DETECTED) ? "DETECTED" : "PROCESSING";
+          exitGateState = STATE_IDLE;
+          exitGateCooldownUntil = currentTime + GATE_COOLDOWN_MS;
+          log_message("\n[STATE] Exit Gate: %s -> IDLE (Vehicle Left Confirmed, Cooldown for 2s)\n", prevState);
+          exitGoneConfirmStart = 0;
+        }
+      } else { 
+        exitGoneConfirmStart = 0;
+      }
+      break;
+  }
+  
+  // -------------------- Advertising Control --------------------
+  bool shouldBeAdvertising = (entryGateState == STATE_DETECTED) || (exitGateState == STATE_DETECTED);
+  if (shouldBeAdvertising && !isAdvertisingActive) {
+    log_message("   -> Vehicle detected. Starting BLE advertising...\n");
+    BLEDevice::getAdvertising()->start();
+    isAdvertisingActive = true;
+    updateState("ADVERTISING");
+  } else if (!shouldBeAdvertising && isAdvertisingActive) {
+    log_message("   -> No new vehicle to process. Stopping BLE advertising...\n");
+    BLEDevice::getAdvertising()->stop();
+    isAdvertisingActive = false;
+    updateState("IDLE");
   }
 
-  if (exitGateOpenRequest) {
-    log_message("   -> Exit gate open authorized. Opening barrier immediately.\n");
-    controlBarrier("exit", "open");
-    exitGateOpenRequest = false;
+  // [추가] 1초마다 센서 값 디버깅 출력
+  if (currentTime - lastSensorPrintTime > 1000) {
+    log_message("[DEBUG] Distances -> Entry: %.2f cm, Exit: %.2f cm\n", entryDist, exitDist);
+    lastSensorPrintTime = currentTime;
   }
 
+  // -------------------- Disconnect & Close Logic --------------------
   if (shouldDisconnectVehicle) {
     if (isVehicleConnected) {
       log_message("   -> Executing disconnect for Conn ID: %d\n", currentVehicleConnId);
@@ -418,28 +450,38 @@ void loop() {
     }
     shouldDisconnectVehicle = false;
   }
-
   if (entryVehiclePassed) {
     entryVehiclePassed = false;
-    log_message("   -> Entry passage detected by task. Closing barrier.\n");
-    controlBarrier("entry", "close");
-    updateState("ENTRY_COMPLETED");
-    publishBarrierClosed("entry");
+    log_message("   -> Entry passage detected. Requesting barrier close.\n");
+    entryGateCloseRequest = true;
   }
-
   if (exitVehiclePassed) {
     exitVehiclePassed = false;
-    log_message("   -> Exit passage detected by task. Closing barrier.\n");
-    controlBarrier("exit", "close");
-    updateState("EXIT_COMPLETED");
-    publishBarrierClosed("exit");
+    log_message("   -> Exit passage detected. Requesting barrier close.\n");
+    exitGateCloseRequest = true;
   }
-  
+  if (entryGateCloseRequest) {
+    if (getRobustDistance(ENTRY_ULTRASONIC_TRIG_PIN, ENTRY_ULTRASONIC_ECHO_PIN) > VEHICLE_DETECT_DISTANCE) {
+      log_message("   -> Entry path is clear. Closing barrier.\n");
+      controlBarrier("entry", "close");
+      updateState("ENTRY_COMPLETED");
+      publishBarrierClosed("entry");
+      entryGateCloseRequest = false;
+    }
+  }
+  if (exitGateCloseRequest) {
+    if (getRobustDistance(EXIT_ULTRASONIC_TRIG_PIN, EXIT_ULTRASONIC_ECHO_PIN) > VEHICLE_DETECT_DISTANCE) {
+      log_message("   -> Exit path is clear. Closing barrier.\n");
+      controlBarrier("exit", "close");
+      updateState("EXIT_COMPLETED");
+      publishBarrierClosed("exit");
+      exitGateCloseRequest = false;
+    }
+  }
   if (led_timer_active && (millis() - led_timer_start_time >= led_on_duration)) {
     digitalWrite(LED_BUILTIN, LOW);
     led_timer_active = false;
   }
-
   vTaskDelay(pdMS_TO_TICKS(10));
 }
 
@@ -450,11 +492,41 @@ void log_message(const char* format, ...) {
   va_start(args, format);
   vsnprintf(buf, sizeof(buf), format, args);
   va_end(args);
+
+  unsigned long currentTime = millis();
+  if (String(buf) == lastLogMessage && (currentTime - lastLogTime < 1000)) {
+      return;
+  }
+  lastLogMessage = String(buf);
+  lastLogTime = currentTime;
+
   Serial.print(buf);
+  Serial2.print(buf);
   if (pcClientConnected && pLogCharacteristic != nullptr) {
     pLogCharacteristic->setValue(buf);
     pLogCharacteristic->notify();
   }
+}
+
+float getRobustDistance(uint8_t trigPin, uint8_t echoPin) {
+    const int NUM_READINGS = 5;
+    std::vector<float> validReadings;
+
+    for (int i = 0; i < NUM_READINGS; i++) {
+        float dist = measureDistance(trigPin, echoPin);
+        if (dist < 999.0) {
+            validReadings.push_back(dist);
+        }
+        delay(10); 
+    }
+
+    if (validReadings.empty()) {
+        return 999.0;
+    }
+
+    std::sort(validReadings.begin(), validReadings.end());
+
+    return validReadings[validReadings.size() / 2];
 }
 
 void updateState(String newState) {
@@ -536,22 +608,16 @@ void publishBarrierClosed(const char* barrierType) {
   #ifdef USE_MICRO_ROS
   publishBarrierEvent(barrierType, "closed");
   #else
-  log_message("[DEBUG] Barrier Event: %s barrier closed\n", barrierType);
+  log_message("[DEBUG_MODE] Barrier Event: %s barrier closed\n", barrierType);
   #endif
 }
 
 bool detectVehiclePassage(uint8_t trigPin, uint8_t echoPin, SensorState& state) {
   const unsigned long PASSAGE_CONFIRM_TIME = 500;
-  bool isExitSensor = (trigPin == EXIT_ULTRASONIC_TRIG_PIN);
   if (millis() - state.lastMeasureTime < 50) return false;
   state.lastMeasureTime = millis();
-  float distance = measureDistance(trigPin, echoPin);
+  float distance = getRobustDistance(trigPin, echoPin);
   if (distance >= 999.0) return false;
-
-  if (isExitSensor) {
-      log_message("[DEBUG-EXIT_SENSOR] Dist: %.1f cm, UnderSensor: %s\n", distance, state.vehicleUnderSensor ? "Yes" : "No");
-  }
-
   if (distance < 15.0) {
     if (!state.vehicleUnderSensor) {
       state.vehicleUnderSensor = true;
@@ -571,7 +637,6 @@ bool detectVehiclePassage(uint8_t trigPin, uint8_t echoPin, SensorState& state) 
     return false;
   }
   else {
-    state.vehicleUnderSensor = false;
     return false;
   }
 }
@@ -646,16 +711,20 @@ void barrier_control_callback(const void * msgin) {
   if (gate && action) {
     if (strcmp(action, "open") == 0) {
       if (strcmp(gate, "entry") == 0) {
-        log_message("   -> Entry gate open authorized. Opening immediately...\n");
-        entryGateOpenRequest = true;
+        log_message("   -> ROS command: Opening entry barrier immediately.\n");
+        controlBarrier("entry", "open");
       } else if (strcmp(gate, "exit") == 0) {
-        log_message("   -> Exit gate open authorized. Opening immediately...\n");
-        exitGateOpenRequest = true;
+        log_message("   -> ROS command: Opening exit barrier immediately.\n");
+        controlBarrier("exit", "open");
       }
     }
     else if (strcmp(action, "close") == 0) {
-        if (strcmp(gate, "entry") == 0) controlBarrier("entry", "close");
-        else if (strcmp(gate, "exit") == 0) controlBarrier("exit", "close");
+        log_message("   -> ROS command: Requesting to close barrier with safety check.\n");
+        if (strcmp(gate, "entry") == 0) {
+            entryGateCloseRequest = true;
+        } else if (strcmp(gate, "exit") == 0) {
+            exitGateCloseRequest = true;
+        }
     }
   } else {
     log_message("   -> [ERROR] Missing 'gate' or 'action' fields!\n");
