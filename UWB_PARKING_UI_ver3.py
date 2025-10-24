@@ -19,7 +19,7 @@ from PyQt5.QtGui import (
     QLinearGradient, QRadialGradient, QTransform, QFontMetrics
 )
 from PyQt5.QtCore import (
-    Qt, QPointF, QRectF, pyqtSignal, QTimer, QPropertyAnimation,
+    Qt, QPointF, QRecgit tF, pyqtSignal, QTimer, QPropertyAnimation,
     pyqtProperty, QEasingCurve, QParallelAnimationGroup
 )
 
@@ -47,13 +47,11 @@ class WaypointReceiver:
         self.position_callback = callback_function
 
     def start_receiver(self):
-        """수신 서버 시작 (별도 스레드) - 개선된 연결 안정성"""
+        """수신 서버 시작 (별도 스레드)"""
         def server_thread():
             try:
                 self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)  # Keep-alive 추가
-                self.server_socket.settimeout(1.0)  # 타임아웃 설정
                 self.server_socket.bind((self.host, self.port))
                 self.server_socket.listen(5)
                 print(f"✅ 서버가 {self.host}:{self.port}에서 대기 중...")
@@ -63,93 +61,35 @@ class WaypointReceiver:
                     try:
                         client_socket, addr = self.server_socket.accept()
                         print(f"🔗 클라이언트 연결됨: {addr}")
-                        
-                        # 연결별로 별도 스레드에서 처리 (동시 연결 지원)
-                        threading.Thread(
-                            target=self.handle_connection, 
-                            args=(client_socket,), 
-                            daemon=True,
-                            name=f"ClientHandler-{addr[0]}:{addr[1]}"
-                        ).start()
-                        
-                    except socket.timeout:
-                        # 타임아웃은 정상적인 상황, 계속 대기
-                        continue
+                        self.handle_connection(client_socket)
                     except Exception as e:
                         if self.running:
                             print(f"❌ 연결 오류: {e}")
                         break
             except Exception as e:
                 print(f"❌ 서버 시작 오류: {e}")
-            finally:
-                if self.server_socket:
-                    try:
-                        self.server_socket.close()
-                    except:
-                        pass
 
-        threading.Thread(target=server_thread, daemon=True, name="WaypointReceiver").start()
+        threading.Thread(target=server_thread, daemon=True).start()
 
     def handle_connection(self, client_socket):
-        """클라이언트 연결 처리 - 개선된 JSON 파싱"""
+        """클라이언트 연결 처리"""
         try:
-            buffer = ""
             while self.running:
-                data = client_socket.recv(4096).decode('utf-8')  # 버퍼 크기 증가
+                data = client_socket.recv(1024).decode('utf-8')
                 if not data:
                     break
-                
-                buffer += data
-                print(f"📥 수신된 데이터 (길이: {len(data)}): {data[:100]}...")  # 디버깅용
-                
-                # 완전한 JSON 메시지들을 처리
-                while buffer:
-                    try:
-                        # JSON 객체의 시작과 끝 찾기
-                        start = buffer.find('{')
-                        if start == -1:
-                            buffer = ""
-                            break
+                try:
+                    for chunk in data.strip().split('}{'):
+                        if not chunk.startswith('{'): chunk = '{' + chunk
+                        if not chunk.endswith('}'): chunk = chunk + '}'
                         
-                        # 중괄호 카운팅으로 완전한 JSON 찾기
-                        brace_count = 0
-                        end = -1
-                        for i, char in enumerate(buffer[start:], start):
-                            if char == '{':
-                                brace_count += 1
-                            elif char == '}':
-                                brace_count -= 1
-                                if brace_count == 0:
-                                    end = i
-                                    break
-                        
-                        if end == -1:
-                            # 완전한 JSON이 없음, 더 많은 데이터 대기
-                            print("⏳ 완전한 JSON을 기다리는 중...")
-                            break
-                        
-                        # 완전한 JSON 추출
-                        json_str = buffer[start:end+1]
-                        buffer = buffer[end+1:]
-                        
-                        print(f"🔍 파싱할 JSON: {json_str}")
-                        message = json.loads(json_str)
+                        message = json.loads(chunk)
                         self.process_waypoint_data(message)
-                        
                         response = {"status": "received", "timestamp": datetime.now().isoformat()}
                         client_socket.send(json.dumps(response).encode('utf-8'))
-                        print("✅ JSON 처리 완료 및 응답 전송")
-                        
-                    except json.JSONDecodeError as e:
-                        print(f"❌ JSON 파싱 오류: {e}")
-                        print(f"   문제가 된 데이터: {json_str}")
-                        # 잘못된 JSON은 버리고 계속 진행
-                        buffer = buffer[end+1:] if end != -1 else ""
-                        break
-                    except Exception as e:
-                        print(f"❌ 메시지 처리 오류: {e}")
-                        break
-                        
+
+                except json.JSONDecodeError:
+                    print(f"❌ 잘못된 JSON 데이터: {data}")
         except Exception as e:
             print(f"❌ 데이터 수신 오류: {e}")
         finally:
@@ -157,50 +97,18 @@ class WaypointReceiver:
             print("📱 클라이언트 연결 종료")
 
     def process_waypoint_data(self, data):
-        """수신된 데이터 처리 (경로 또는 위치) - 개선된 로깅"""
-        print(f"📥 수신된 원본 데이터: {data}")  # 디버깅용
-        
-        if not isinstance(data, dict):
-            print(f"❌ 잘못된 데이터 형식: {type(data)}")
-            return
-            
+        """수신된 데이터 처리 (경로 또는 위치)"""
         msg_type = data.get('type')
         
         # 경로 할당 메시지 처리
         if msg_type == 'waypoint_assignment':
             waypoints = data.get('waypoints', [])
             print(f"\n🎯 새로운 waypoint 수신: {waypoints}")
-            print(f"📊 웨이포인트 개수: {len(waypoints)}")
-            
-            # 웨이포인트 유효성 검사
-            if not isinstance(waypoints, list):
-                print(f"❌ 웨이포인트가 리스트가 아님: {type(waypoints)}")
-                return
-                
-            if len(waypoints) == 0:
-                print("⚠️ 빈 웨이포인트 리스트 수신")
-                return
-                
-            # 각 웨이포인트 유효성 검사
-            for i, wp in enumerate(waypoints):
-                if not isinstance(wp, list) or len(wp) != 2:
-                    print(f"❌ 잘못된 웨이포인트 형식 [{i}]: {wp}")
-                    return
-                try:
-                    float(wp[0])
-                    float(wp[1])
-                except (ValueError, TypeError):
-                    print(f"❌ 웨이포인트 좌표가 숫자가 아님 [{i}]: {wp}")
-                    return
-            
             if self.waypoint_callback:
                 self.waypoint_callback(waypoints)
-                print("✅ 웨이포인트 콜백 호출 완료")
-            else:
-                print("❌ waypoint_callback이 설정되지 않음")
             print("=" * 50)
             
-        # 실시간 위치 메시지 처리
+        # [수정] 실시간 위치 메시지 처리 - 송신 코드의 형식에 맞춤
         elif msg_type == 'real_time_position':
             x = data.get('x')
             y = data.get('y')
@@ -208,26 +116,12 @@ class WaypointReceiver:
             
             print(f"📍 실시간 위치 수신 - Tag {tag_id}: ({x}, {y})")
             
-            # 좌표 유효성 검사
-            try:
-                if x is not None and y is not None:
-                    x_float = float(x)
-                    y_float = float(y)
-                    position = [x_float, y_float]
-                    
-                    if self.position_callback:
-                        self.position_callback(position)
-                        print("✅ 위치 콜백 호출 완료")
-                    else:
-                        print("❌ position_callback이 설정되지 않음")
-                else:
-                    print(f"❌ 잘못된 위치 데이터: x={x}, y={y}")
-            except (ValueError, TypeError) as e:
-                print(f"❌ 좌표 변환 오류: {e}, x={x}, y={y}")
-                
-        else:
-            print(f"⚠️ 알 수 없는 메시지 타입: {msg_type}")
-            print(f"   지원되는 타입: 'waypoint_assignment', 'real_time_position'")
+            if x is not None and y is not None:
+                position = [float(x), float(y)]
+                if self.position_callback:
+                    self.position_callback(position)
+            else:
+                print(f"❌ 잘못된 위치 데이터: x={x}, y={y}")
 
     def stop(self):
         """수신 서버 중지"""
@@ -707,7 +601,7 @@ class PremiumHudWidget(QFrame):
             return
 
         direction, distance = instructions[0]
-        is_turn_complete = ("좌회전" in direction or "우회전" in direction) and distance <= 3
+        is_turn_complete = ("좌회전" in direction or "우회전" in direction) and distance <= 1
 
         if is_turn_complete and len(instructions) > 1:
             next_dir, next_dist = instructions[1]
@@ -854,7 +748,7 @@ class ParkingLotUI(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SmartParking Navigation System")
+        self.setWindowTitle("HYUNDAI SmartParking Navigation System (WiFi Ver.)")
         self.initial_fit = False
         self.received_waypoints = []
         self.setup_styles()
@@ -892,11 +786,6 @@ class ParkingLotUI(QWidget):
         self.car.positionChanged.connect(self.update_hud_from_car_position)
         self.scene.addItem(self.car)
         self.car.hide()
-        
-        # 주차구역 블록들을 저장할 딕셔너리 추가
-        self.parking_spots = {}  # 주차구역 번호 -> QGraphicsRectItem 매핑
-        self.current_parking_spot = None  # 현재 주차된 구역 번호 추적
-        
         self.build_static_layout()
         self.build_occupancy()
         self.hud.update_navigation_info([])
@@ -929,199 +818,8 @@ class ParkingLotUI(QWidget):
         """[x, y] 좌표를 받아 차량의 위치를 업데이트합니다."""
         if not (isinstance(position, list) and len(position) == 2):
             return
-        
-        x, y = position[0], position[1]
-        
-        # (9000, 9000) 좌표는 출차 신호로 처리
-        if x == 9000 and y == 9000:
-            print("🚗 출차 신호 감지: (9000, 9000) 좌표 수신")
-            self.handle_car_exit()
-            return
-        
-        original_pos = QPointF(x, y)
-        
-        # 경로가 있고 차량이 표시된 경우에만 경로 투영 적용
-        if self.full_path_points and len(self.full_path_points) >= 2 and self.car.isVisible():
-            # 목적지까지의 거리 계산
-            destination = self.full_path_points[-1]  # 마지막 웨이포인트가 목적지
-            distance_to_destination = self.euclidean_distance(original_pos, destination)
-            
-            print(f"🔍 목적지 거리: {distance_to_destination:.1f}m, 목적지 좌표: ({destination.x():.1f}, {destination.y():.1f})")
-            
-            # 목적지 5m 이내인 경우 경로 투영 완전 비활성화
-            if distance_to_destination <= 5.0:
-                print(f"🎯 목적지 근접 ({distance_to_destination:.1f}m) - 원본 좌표 그대로 사용")
-                self.car.setPos(original_pos)
-                return  # 경로 투영 로직 완전히 건너뛰기
-            else:
-                print(f"🛣️ 목적지 멀리 ({distance_to_destination:.1f}m) - 경로 투영 적용")
-                projected_pos = self.project_point_to_path(original_pos)
-                print(f"📍 원본 위치: ({x:.1f}, {y:.1f}) -> 투영 위치: ({projected_pos.x():.1f}, {projected_pos.y():.1f})")
-                self.car.setPos(projected_pos)
-        else:
-            # 경로가 없거나 차량이 숨겨진 경우 원본 위치 사용
-            print("🚫 경로 투영 조건 미충족 - 원본 좌표 사용")
-            self.car.setPos(original_pos)
-
-    def project_point_to_path(self, point: QPointF) -> QPointF:
-        """주어진 점을 직선 경로에 투영하여 가장 가까운 경로 위의 점을 반환합니다."""
-        if not self.full_path_points or len(self.full_path_points) < 2:
-            return point
-        
-        min_distance = float('inf')
-        closest_point = point
-        
-        # 모든 경로 세그먼트에 대해 투영점을 계산
-        for i in range(len(self.full_path_points) - 1):
-            p1 = self.full_path_points[i]
-            p2 = self.full_path_points[i + 1]
-            
-            # 세그먼트에 점을 투영
-            projected = self.project_point_to_segment(point, p1, p2)
-            
-            # 유클리드 거리 계산
-            distance = self.euclidean_distance(point, projected)
-            
-            if distance < min_distance:
-                min_distance = distance
-                closest_point = projected
-        
-        return closest_point
-    
-    def project_point_to_segment(self, point: QPointF, seg_start: QPointF, seg_end: QPointF) -> QPointF:
-        """점을 선분에 투영합니다."""
-        # 선분의 벡터
-        seg_vec = seg_end - seg_start
-        seg_len_sq = QPointF.dotProduct(seg_vec, seg_vec)
-        
-        if seg_len_sq == 0:
-            # 선분이 점인 경우
-            return seg_start
-        
-        # 점에서 선분 시작점까지의 벡터
-        point_vec = point - seg_start
-        
-        # 투영 매개변수 t 계산
-        t = QPointF.dotProduct(point_vec, seg_vec) / seg_len_sq
-        
-        # t를 [0, 1] 범위로 클램프
-        t = max(0.0, min(1.0, t))
-        
-        # 투영점 계산
-        projected = seg_start + t * seg_vec
-        
-        return projected
-    
-    def euclidean_distance(self, p1: QPointF, p2: QPointF) -> float:
-        """두 점 사이의 유클리드 거리를 계산합니다."""
-        dx = p1.x() - p2.x()
-        dy = p1.y() - p2.y()
-        return sqrt(dx * dx + dy * dy)
-
-    def handle_car_exit(self):
-        """차량 출차 처리 - 차량 제거 및 상태 초기화"""
-        print("🚗 차량 출차 처리 시작")
-        
-        # 차량을 UI에서 숨김
-        if self.car.isVisible():
-            self.car.hide()
-            print("✅ 차량을 UI에서 제거했습니다")
-        
-        # 현재 주차구역이 있다면 색상 복원
-        if hasattr(self, 'current_parking_spot') and self.current_parking_spot:
-            self.restore_parking_spot_color(self.current_parking_spot)
-            print(f"✅ 주차구역 {self.current_parking_spot}번 색상을 복원했습니다")
-            self.current_parking_spot = None
-        
-        # 경로 초기화
-        self.clear_path_layer()
-        self.full_path_points = []
-        self.current_path_segment_index = 0
-        self.is_exit_scenario = False
-        
-        # HUD 초기화
-        self.hud.update_navigation_info([])
-        
-        # 웨이포인트 초기화
-        self.received_waypoints = []
-        
-        print("✅ 차량 출차 처리 완료 - 모든 상태가 초기화되었습니다")
-
-    def detect_parking_spot_from_waypoint(self, waypoint):
-        """웨이포인트 좌표를 기반으로 주차구역 번호 감지"""
-        x, y = waypoint[0], waypoint[1]
-        
-        # sender.py의 주차구역별 waypoint 좌표와 동일
-        parking_waypoints = {
-            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
-            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
-            5: [1450, 1475],
-            # 주차구역 6-7 (우측, 위→아래)  
-            6: [1475, 1400], 7: [1475, 1000],
-            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
-            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
-        }
-        
-        # 허용 범위 내에서 매칭 (각각 ±50픽셀 허용)
-        tolerance = 50
-        for spot_num, coord in parking_waypoints.items():
-            if abs(x - coord[0]) <= tolerance and abs(y - coord[1]) <= tolerance:
-                return spot_num
-        
-        return None
-
-    def change_parking_spot_color(self, parking_spot_num, color):
-        """특정 주차구역의 색상을 변경합니다."""
-        if parking_spot_num in self.parking_spots:
-            rect_item = self.parking_spots[parking_spot_num]
-            
-            # 주황색 그라데이션 생성
-            if color == "orange":
-                gradient = QLinearGradient(rect_item.rect().x(), rect_item.rect().y(),
-                                        rect_item.rect().x() + rect_item.rect().width(),
-                                        rect_item.rect().y() + rect_item.rect().height())
-                gradient.setColorAt(0, QColor(255, 165, 0, 250))  # 밝은 주황색
-                gradient.setColorAt(1, QColor(255, 140, 0, 200))  # 어두운 주황색
-                rect_item.setBrush(QBrush(gradient))
-                
-                # 테두리는 하얀색으로 유지
-                rect_item.setPen(QPen(QColor("white"), 20))
-                print(f"🎯 주차구역 {parking_spot_num}번 색상을 주황색으로 변경 (테두리는 흰색 유지)")
-            else:
-                # 원래 색상으로 복원
-                self.restore_parking_spot_color(parking_spot_num)
-
-    def restore_parking_spot_color(self, parking_spot_num):
-        """주차구역 색상을 원래 색상으로 복원합니다."""
-        if parking_spot_num in self.parking_spots:
-            rect_item = self.parking_spots[parking_spot_num]
-            
-            # 원래 색상 복원 (일반/장애인/전기차 구역별)
-            if parking_spot_num in [1, 6, 7]:  # 장애인 구역
-                gradient = QLinearGradient(rect_item.rect().x(), rect_item.rect().y(),
-                                        rect_item.rect().x() + rect_item.rect().width(),
-                                        rect_item.rect().y() + rect_item.rect().height())
-                gradient.setColorAt(0, QColor(135, 206, 250, 200))
-                gradient.setColorAt(1, QColor(70, 130, 180, 150))
-                rect_item.setBrush(QBrush(gradient))
-            elif parking_spot_num in [4, 5, 10, 11]:  # 전기차 구역
-                gradient = QLinearGradient(rect_item.rect().x(), rect_item.rect().y(),
-                                        rect_item.rect().x() + rect_item.rect().width(),
-                                        rect_item.rect().y() + rect_item.rect().height())
-                gradient.setColorAt(0, QColor(0, 200, 130, 200))
-                gradient.setColorAt(1, QColor(0, 150, 100, 150))
-                rect_item.setBrush(QBrush(gradient))
-            else:  # 일반 구역
-                gradient = QLinearGradient(rect_item.rect().x(), rect_item.rect().y(),
-                                        rect_item.rect().x() + rect_item.rect().width(),
-                                        rect_item.rect().y() + rect_item.rect().height())
-                gradient.setColorAt(0, QColor("#303030"))
-                gradient.setColorAt(1, QColor("#303030"))
-                rect_item.setBrush(QBrush(gradient))
-            
-            # 테두리 원래 색상으로 복원
-            rect_item.setPen(QPen(QColor("white"), 20))
-            print(f"🎯 주차구역 {parking_spot_num}번 색상을 원래 색상으로 복원")
+        new_pos = QPointF(position[0], position[1])
+        self.car.setPos(new_pos)
 
     def calculate_and_display_route(self):
         """받은 웨이포인트들을 직선으로 연결하여 경로를 표시합니다."""
@@ -1139,18 +837,6 @@ class ParkingLotUI(QWidget):
         
         # 전체 경로: 시작점 + 웨이포인트들
         self.full_path_points = [start_point] + waypoints_qpoints
-        
-        # 마지막 웨이포인트가 주차구역인지 확인하고 색상 변경
-        if self.received_waypoints:
-            last_waypoint = self.received_waypoints[-1]
-            destination_parking_spot = self.detect_parking_spot_from_waypoint(last_waypoint)
-            
-            if destination_parking_spot:
-                print(f"🎯 마지막 웨이포인트는 주차구역 {destination_parking_spot}번 입니다. 색상을 주황색으로 변경합니다.")
-                self.change_parking_spot_color(destination_parking_spot, "orange")
-                self.current_parking_spot = destination_parking_spot  # 현재 주차구역 추적
-            else:
-                print(f"📍 마지막 웨이포인트 ({last_waypoint})는 주차구역이 아닙니다.")
         
         print(f"✅ 최종 경로: {len(self.full_path_points)}개 포인트")
         for i, point in enumerate(self.full_path_points):
@@ -1207,8 +893,8 @@ class ParkingLotUI(QWidget):
             # 주차 구역에 해당하는 경우: 흰색, 20픽셀 테두리
             pen = QPen(QColor("white"), 20)
             r.setPen(pen)
-        elif label in ["백화점 본관 입구", "영화관 입구", "문화시설 입구"]:
-            # 백화점 본관 입구, 영화관 입구, 문화시설 입구: 노랑색 테두리로 통일
+        elif label in ["미용실", "마트", "식당"]:
+            # 미용실, 마트, 식당: 노랑색 테두리로 통일
             pen = QPen(QColor(255, 255, 0), 20)  # 노랑색
             r.setPen(pen)
         elif "입출차" in label:
@@ -1225,30 +911,17 @@ class ParkingLotUI(QWidget):
             t = QGraphicsSimpleTextItem(label)
             t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             t.setBrush(QColor(255,255,255))
-            # 백화점 본관 입구, 영화관 입구, 문화시설 입구는 폰트 크기를 2.25배로 설정 (1.5 * 1.5)
-            if label in ["백화점 본관 입구", "영화관 입구", "문화시설 입구"]:
+            # 미용실, 마트, 식당은 폰트 크기를 2.25배로 설정 (1.5 * 1.5)
+            if label in ["미용실", "마트", "식당"]:
                 font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 2.25), QFont.Bold)
-                # 목적지 라벨 위치를 주차구역 좌우에 배치
-                if label == "백화점 본관 입구":
-                    # 백화점: 블록(-400,1600,400,400) 왼쪽으로 310픽셀 이동한 위치에 라벨 배치
-                    t.setPos(x+w//2-50-310, y-20)  # 기존 위치에서 왼쪽으로 310픽셀 이동
-                elif label == "영화관 입구":
-                    # 영화관: 오른쪽 주차구역 아래에 배치
-                    t.setPos(x+w+20, y+h-40)
-                elif label == "문화시설 입구":
-                    # 문화시설: 우측 주차구역 옆에 배치
-                    t.setPos(x+w+20, y+h-60)
             # 주차구역은 폰트 크기를 1.5배로 설정
             elif label in ["장애인", "전기", "일반"]:
                 font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 1.5), QFont.Bold)
-                t.setPos(x+5,y+h-25)
             else:
                 font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
-                t.setPos(x+5,y+h-25)
             t.setFont(font)
+            t.setPos(x+5,y+h-25)
             t.setParentItem(self.layer_static)
-        
-        return r  # QGraphicsRectItem 반환
 
     def add_hatched(self, x, y, w, h, edge=QColor("black"), fill=QColor(220, 20, 60, 90)):
         r = QGraphicsRectItem(QRectF(x,y,w,h)); b = QBrush(fill); b.setStyle(Qt.BDiagPattern); r.setBrush(b); r.setPen(QPen(edge,3)); r.setParentItem(self.layer_static)
@@ -1270,10 +943,10 @@ class ParkingLotUI(QWidget):
         # 입출차 구역 추가
         self.add_block(0, 0, 400, 400, c_io, "입출차")
         
-        # 목적지 블록들 (입출차 제외) - 문화시설 입구 제외
+        # 목적지 블록들 (입출차 제외) - 식당 제외
         base = [
-            (-400, 1600, 400, 400, c_emp, "백화점 본관 입구"),  # 백화점 본관 입구
-            (1600, 1600, 400, 400, c_emp, "영화관 입구"),    # 영화관 입구
+            (-400, 1600, 400, 400, c_emp, "미용실"),  # 미용실
+            (1600, 1600, 400, 400, c_emp, "마트"),    # 마트
             (550, 1050, 800, 300, c_obs, "장애물")    # 금지구역
         ]
         
@@ -1299,23 +972,17 @@ class ParkingLotUI(QWidget):
         
         self.add_dot_label_static(self.ENTRANCE, "입구", QColor(0, 170, 210))
         
-        # 주차구역을 추가하고 딕셔너리에 저장
-        spot_numbers = [1, 2, 3, 4, 5, 6, 9, 10, 11]  # parking_spots 리스트와 매칭
-        for i, (x, y, w, h, c, l) in enumerate(parking_spots):
-            rect_item = self.add_block(x, y, w, h, c, l)
-            if rect_item:  # add_block이 QGraphicsRectItem을 반환한다고 가정
-                self.parking_spots[spot_numbers[i]] = rect_item
+        # 주차구역을 추가
+        for x, y, w, h, c, l in parking_spots: self.add_block(x, y, w, h, c, l)
         
-        # 문화시설 입구 추가
-        self.add_block(1600, 400, 400, 400, c_emp, "문화시설 입구")
+        # 식당 추가
+        self.add_block(1600, 400, 400, 400, c_emp, "식당")
         
         # 7번 주차구역 추가
-        rect_item = self.add_block(1600, 800, 400, 400, c_dis, "장애인")
-        self.parking_spots[7] = rect_item
+        self.add_block(1600, 800, 400, 400, c_dis, "장애인")
         
         # 8번 주차구역을 가장 마지막에 추가하여 가장 위에 표시되도록 함
-        rect_item = self.add_block(1300, 400, 300, 400, c_gen, "일반")
-        self.parking_spots[8] = rect_item
+        self.add_block(1300, 400, 300, 400, c_gen, "일반")
 
     def build_occupancy(self):
         W, H, C = self.SCENE_W, self.SCENE_H, self.CELL; gx, gy = (W + C - 1) // C, (H + C - 1) // C
@@ -1332,9 +999,9 @@ class ParkingLotUI(QWidget):
         for x,y,w,h,c,l in [
             (550,1050,800,300,0,""),      # 금지구역
             (400,0,1600,400,0,""),        # 하단 통행금지구역
-            (1600,400,400,400,0,""),      # 문화시설 입구
-            (1600,1600,400,400,0,""),     # 영화관 입구
-            (-400,1600,400,400,0,""),     # 백화점 본관 입구
+            (1600,400,400,400,0,""),      # 식당
+            (1600,1600,400,400,0,""),     # 마트
+            (-400,1600,400,400,0,""),     # 미용실
             (0,0,400,400,0,"")            # 입출차
         ]: 
             block_rect(x,y,w,h)

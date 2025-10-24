@@ -748,7 +748,7 @@ class ParkingLotUI(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SmartParking Navigation System")
+        self.setWindowTitle("HYUNDAI SmartParking Navigation System (WiFi Ver.)")
         self.initial_fit = False
         self.received_waypoints = []
         self.setup_styles()
@@ -786,10 +786,6 @@ class ParkingLotUI(QWidget):
         self.car.positionChanged.connect(self.update_hud_from_car_position)
         self.scene.addItem(self.car)
         self.car.hide()
-        
-        # 주차구역 블록들을 저장할 딕셔너리 추가
-        self.parking_spots = {}  # 주차구역 번호 -> QGraphicsRectItem 매핑
-        
         self.build_static_layout()
         self.build_occupancy()
         self.hud.update_navigation_info([])
@@ -825,82 +821,6 @@ class ParkingLotUI(QWidget):
         new_pos = QPointF(position[0], position[1])
         self.car.setPos(new_pos)
 
-    def detect_parking_spot_from_waypoint(self, waypoint):
-        """웨이포인트 좌표를 기반으로 주차구역 번호 감지"""
-        x, y = waypoint[0], waypoint[1]
-        
-        # sender.py의 주차구역별 waypoint 좌표와 동일
-        parking_waypoints = {
-            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
-            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
-            5: [1450, 1475],
-            # 주차구역 6-7 (우측, 위→아래)  
-            6: [1475, 1400], 7: [1475, 1000],
-            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
-            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
-        }
-        
-        # 허용 범위 내에서 매칭 (각각 ±50픽셀 허용)
-        tolerance = 50
-        for spot_num, coord in parking_waypoints.items():
-            if abs(x - coord[0]) <= tolerance and abs(y - coord[1]) <= tolerance:
-                return spot_num
-        
-        return None
-
-    def change_parking_spot_color(self, parking_spot_num, color):
-        """특정 주차구역의 색상을 변경합니다."""
-        if parking_spot_num in self.parking_spots:
-            rect_item = self.parking_spots[parking_spot_num]
-            
-            # 주황색 그라데이션 생성
-            if color == "orange":
-                gradient = QLinearGradient(rect_item.rect().x(), rect_item.rect().y(),
-                                        rect_item.rect().x() + rect_item.rect().width(),
-                                        rect_item.rect().y() + rect_item.rect().height())
-                gradient.setColorAt(0, QColor(255, 165, 0, 250))  # 밝은 주황색
-                gradient.setColorAt(1, QColor(255, 140, 0, 200))  # 어두운 주황색
-                rect_item.setBrush(QBrush(gradient))
-                
-                # 테두리는 하얀색으로 유지
-                rect_item.setPen(QPen(QColor("white"), 20))
-                print(f"🎯 주차구역 {parking_spot_num}번 색상을 주황색으로 변경 (테두리는 흰색 유지)")
-            else:
-                # 원래 색상으로 복원
-                self.restore_parking_spot_color(parking_spot_num)
-
-    def restore_parking_spot_color(self, parking_spot_num):
-        """주차구역 색상을 원래 색상으로 복원합니다."""
-        if parking_spot_num in self.parking_spots:
-            rect_item = self.parking_spots[parking_spot_num]
-            
-            # 원래 색상 복원 (일반/장애인/전기차 구역별)
-            if parking_spot_num in [1, 6, 7]:  # 장애인 구역
-                gradient = QLinearGradient(rect_item.rect().x(), rect_item.rect().y(),
-                                        rect_item.rect().x() + rect_item.rect().width(),
-                                        rect_item.rect().y() + rect_item.rect().height())
-                gradient.setColorAt(0, QColor(135, 206, 250, 200))
-                gradient.setColorAt(1, QColor(70, 130, 180, 150))
-                rect_item.setBrush(QBrush(gradient))
-            elif parking_spot_num in [4, 5, 10, 11]:  # 전기차 구역
-                gradient = QLinearGradient(rect_item.rect().x(), rect_item.rect().y(),
-                                        rect_item.rect().x() + rect_item.rect().width(),
-                                        rect_item.rect().y() + rect_item.rect().height())
-                gradient.setColorAt(0, QColor(0, 200, 130, 200))
-                gradient.setColorAt(1, QColor(0, 150, 100, 150))
-                rect_item.setBrush(QBrush(gradient))
-            else:  # 일반 구역
-                gradient = QLinearGradient(rect_item.rect().x(), rect_item.rect().y(),
-                                        rect_item.rect().x() + rect_item.rect().width(),
-                                        rect_item.rect().y() + rect_item.rect().height())
-                gradient.setColorAt(0, QColor("#303030"))
-                gradient.setColorAt(1, QColor("#303030"))
-                rect_item.setBrush(QBrush(gradient))
-            
-            # 테두리 원래 색상으로 복원
-            rect_item.setPen(QPen(QColor("white"), 20))
-            print(f"🎯 주차구역 {parking_spot_num}번 색상을 원래 색상으로 복원")
-
     def calculate_and_display_route(self):
         """받은 웨이포인트들을 직선으로 연결하여 경로를 표시합니다."""
         if not self.received_waypoints:
@@ -917,17 +837,6 @@ class ParkingLotUI(QWidget):
         
         # 전체 경로: 시작점 + 웨이포인트들
         self.full_path_points = [start_point] + waypoints_qpoints
-        
-        # 마지막 웨이포인트가 주차구역인지 확인하고 색상 변경
-        if self.received_waypoints:
-            last_waypoint = self.received_waypoints[-1]
-            destination_parking_spot = self.detect_parking_spot_from_waypoint(last_waypoint)
-            
-            if destination_parking_spot:
-                print(f"🎯 마지막 웨이포인트는 주차구역 {destination_parking_spot}번 입니다. 색상을 주황색으로 변경합니다.")
-                self.change_parking_spot_color(destination_parking_spot, "orange")
-            else:
-                print(f"📍 마지막 웨이포인트 ({last_waypoint})는 주차구역이 아닙니다.")
         
         print(f"✅ 최종 경로: {len(self.full_path_points)}개 포인트")
         for i, point in enumerate(self.full_path_points):
@@ -984,8 +893,8 @@ class ParkingLotUI(QWidget):
             # 주차 구역에 해당하는 경우: 흰색, 20픽셀 테두리
             pen = QPen(QColor("white"), 20)
             r.setPen(pen)
-        elif label in ["백화점 본관 입구", "영화관 입구", "문화시설 입구"]:
-            # 백화점 본관 입구, 영화관 입구, 문화시설 입구: 노랑색 테두리로 통일
+        elif label in ["미용실", "마트", "식당"]:
+            # 미용실, 마트, 식당: 노랑색 테두리로 통일
             pen = QPen(QColor(255, 255, 0), 20)  # 노랑색
             r.setPen(pen)
         elif "입출차" in label:
@@ -1002,30 +911,17 @@ class ParkingLotUI(QWidget):
             t = QGraphicsSimpleTextItem(label)
             t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             t.setBrush(QColor(255,255,255))
-            # 백화점 본관 입구, 영화관 입구, 문화시설 입구는 폰트 크기를 2.25배로 설정 (1.5 * 1.5)
-            if label in ["백화점 본관 입구", "영화관 입구", "문화시설 입구"]:
+            # 미용실, 마트, 식당은 폰트 크기를 2.25배로 설정 (1.5 * 1.5)
+            if label in ["미용실", "마트", "식당"]:
                 font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 2.25), QFont.Bold)
-                # 목적지 라벨 위치를 주차구역 좌우에 배치
-                if label == "백화점 본관 입구":
-                    # 백화점: 블록(-400,1600,400,400) 왼쪽으로 310픽셀 이동한 위치에 라벨 배치
-                    t.setPos(x+w//2-50-310, y-20)  # 기존 위치에서 왼쪽으로 310픽셀 이동
-                elif label == "영화관 입구":
-                    # 영화관: 오른쪽 주차구역 아래에 배치
-                    t.setPos(x+w+20, y+h-40)
-                elif label == "문화시설 입구":
-                    # 문화시설: 우측 주차구역 옆에 배치
-                    t.setPos(x+w+20, y+h-60)
             # 주차구역은 폰트 크기를 1.5배로 설정
             elif label in ["장애인", "전기", "일반"]:
                 font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 1.5), QFont.Bold)
-                t.setPos(x+5,y+h-25)
             else:
                 font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
-                t.setPos(x+5,y+h-25)
             t.setFont(font)
+            t.setPos(x+5,y+h-25)
             t.setParentItem(self.layer_static)
-        
-        return r  # QGraphicsRectItem 반환
 
     def add_hatched(self, x, y, w, h, edge=QColor("black"), fill=QColor(220, 20, 60, 90)):
         r = QGraphicsRectItem(QRectF(x,y,w,h)); b = QBrush(fill); b.setStyle(Qt.BDiagPattern); r.setBrush(b); r.setPen(QPen(edge,3)); r.setParentItem(self.layer_static)
@@ -1047,10 +943,10 @@ class ParkingLotUI(QWidget):
         # 입출차 구역 추가
         self.add_block(0, 0, 400, 400, c_io, "입출차")
         
-        # 목적지 블록들 (입출차 제외) - 문화시설 입구 제외
+        # 목적지 블록들 (입출차 제외) - 식당 제외
         base = [
-            (-400, 1600, 400, 400, c_emp, "백화점 본관 입구"),  # 백화점 본관 입구
-            (1600, 1600, 400, 400, c_emp, "영화관 입구"),    # 영화관 입구
+            (-400, 1600, 400, 400, c_emp, "미용실"),  # 미용실
+            (1600, 1600, 400, 400, c_emp, "마트"),    # 마트
             (550, 1050, 800, 300, c_obs, "장애물")    # 금지구역
         ]
         
@@ -1076,23 +972,17 @@ class ParkingLotUI(QWidget):
         
         self.add_dot_label_static(self.ENTRANCE, "입구", QColor(0, 170, 210))
         
-        # 주차구역을 추가하고 딕셔너리에 저장
-        spot_numbers = [1, 2, 3, 4, 5, 6, 9, 10, 11]  # parking_spots 리스트와 매칭
-        for i, (x, y, w, h, c, l) in enumerate(parking_spots):
-            rect_item = self.add_block(x, y, w, h, c, l)
-            if rect_item:  # add_block이 QGraphicsRectItem을 반환한다고 가정
-                self.parking_spots[spot_numbers[i]] = rect_item
+        # 주차구역을 추가
+        for x, y, w, h, c, l in parking_spots: self.add_block(x, y, w, h, c, l)
         
-        # 문화시설 입구 추가
-        self.add_block(1600, 400, 400, 400, c_emp, "문화시설 입구")
+        # 식당 추가
+        self.add_block(1600, 400, 400, 400, c_emp, "식당")
         
         # 7번 주차구역 추가
-        rect_item = self.add_block(1600, 800, 400, 400, c_dis, "장애인")
-        self.parking_spots[7] = rect_item
+        self.add_block(1600, 800, 400, 400, c_dis, "장애인")
         
         # 8번 주차구역을 가장 마지막에 추가하여 가장 위에 표시되도록 함
-        rect_item = self.add_block(1300, 400, 300, 400, c_gen, "일반")
-        self.parking_spots[8] = rect_item
+        self.add_block(1300, 400, 300, 400, c_gen, "일반")
 
     def build_occupancy(self):
         W, H, C = self.SCENE_W, self.SCENE_H, self.CELL; gx, gy = (W + C - 1) // C, (H + C - 1) // C
@@ -1109,9 +999,9 @@ class ParkingLotUI(QWidget):
         for x,y,w,h,c,l in [
             (550,1050,800,300,0,""),      # 금지구역
             (400,0,1600,400,0,""),        # 하단 통행금지구역
-            (1600,400,400,400,0,""),      # 문화시설 입구
-            (1600,1600,400,400,0,""),     # 영화관 입구
-            (-400,1600,400,400,0,""),     # 백화점 본관 입구
+            (1600,400,400,400,0,""),      # 식당
+            (1600,1600,400,400,0,""),     # 마트
+            (-400,1600,400,400,0,""),     # 미용실
             (0,0,400,400,0,"")            # 입출차
         ]: 
             block_rect(x,y,w,h)
