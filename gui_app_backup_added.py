@@ -243,7 +243,7 @@ class AnimatedButton(QPushButton):
                     stop:0 rgba(0, 44, 95, 0.8), stop:1 rgba(0, 127, 163, 0.8));
                 color: white; border: 2px solid rgba(0, 170, 210, 0.5);
                 border-radius: 25px; font-size: {FONT_SIZES['button']}pt;
-                font-weight: bold; padding: 15px 30px;
+                font-weight: bold; padding: 15px 30px; backdrop-filter: blur(10px);
             }}
             QPushButton:disabled {{
                 background: rgba(40, 50, 70, 0.8);
@@ -257,7 +257,7 @@ class AnimatedButton(QPushButton):
                     stop:0 rgba(0, 170, 210, 0.9), stop:1 rgba(0, 127, 163, 0.9));
                 color: white; border: 2px solid rgba(0, 170, 210, 0.8);
                 border-radius: 25px; font-size: {FONT_SIZES['button']}pt;
-                font-weight: bold; padding: 15px 30px;
+                font-weight: bold; padding: 15px 30px; backdrop-filter: blur(10px);
             }}
         """
         self.setStyleSheet(self.default_style)

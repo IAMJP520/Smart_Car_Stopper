@@ -1,22 +1,23 @@
-# main_launcher.py -> gui_app.py->UWB_PARKING_UI_ver2.py
+# 파일 이름: main_launcher_sy.py
+# main_launcher_sy.py - gui_app.py - UI_testing.py
 import sys
 import socket
 import json
 import threading
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt
 
-# 기존 UI 코드가 저장된 파일에서 HyundaiStyleUI 클래스를 가져옵니다.
-# 파일 이름이 gui_app.py 라고 가정합니다.
-from gui_app_backup import HyundaiStyleUI 
+# gui_app.py 파일에서 HyundaiStyleUI 클래스를 가져옵니다.
+from gui_app import HyundaiStyleUI 
 
 # --- ESP32 트리거 수신을 위한 클래스 ---
 class TriggerReceiver(QObject):
-    """ESP32로부터 시뮬레이션 시작 트리거를 수신하는 클래스"""
+    """ESP32로부터 GUI 시작 트리거와 차량 IP 주소를 수신하는 클래스"""
     
-    # PyQt의 시그널 정의: UI를 시작하라는 신호를 보낼 때 사용됩니다.
-    # 스레드 간 통신을 안전하게 처리해줍니다.
-    start_gui_signal = pyqtSignal()
+    # [수정] 시그널이 차량의 IP 주소(str)를 전달하도록 변경
+    start_gui_signal = pyqtSignal(str)
 
     def __init__(self, host='0.0.0.0', port=7777):
         super().__init__()
@@ -30,11 +31,10 @@ class TriggerReceiver(QObject):
         """현재 PC의 로컬 IP 주소를 찾아 반환합니다."""
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            # 외부 서버에 연결 시도하여 로컬 IP를 알아냅니다.
             s.connect(('8.8.8.8', 80))
             ip = s.getsockname()[0]
         except Exception:
-            ip = '127.0.0.1' # 실패 시 루프백 주소
+            ip = '127.0.0.1'
         finally:
             s.close()
         return ip
@@ -74,16 +74,20 @@ class TriggerReceiver(QObject):
             if data:
                 print(f"📬 수신 데이터: {data}")
                 message = json.loads(data)
-                # 'command' 키가 'start_simulation' 인지 확인
+                
                 if message.get('command') == 'start_simulation':
-                    print("🚀 'start_simulation' 트리거 수신! GUI를 시작합니다.")
-                    # UI 시작 시그널 발생
-                    self.start_gui_signal.emit()
-                    # 성공 응답 전송
-                    response = {"status": "GUI started"}
-                    client_socket.send(json.dumps(response).encode('utf-8'))
-                    # 트리거를 받았으므로 서버 종료
-                    self.stop() 
+                    # [수정] ESP32가 보낸 vehicle_ip 추출
+                    vehicle_ip = message.get('vehicle_ip')
+                    
+                    if vehicle_ip:
+                        print(f"🚀 'start_simulation' 트리거 수신! 차량 IP: {vehicle_ip}. GUI를 시작합니다.")
+                        # [수정] 시그널에 IP 주소를 담아 보냄
+                        self.start_gui_signal.emit(vehicle_ip)
+                        response = {"status": "GUI started"}
+                        client_socket.send(json.dumps(response).encode('utf-8'))
+                        self.stop()
+                    else:
+                        print("❌ 오류: 트리거는 수신했으나 차량 IP 주소가 없습니다.")
         except json.JSONDecodeError:
             print("❌ 잘못된 JSON 형식의 데이터 수신")
         except Exception as e:
@@ -97,7 +101,6 @@ class TriggerReceiver(QObject):
             print("🛑 트리거 수신기를 종료합니다.")
             self.running = False
             if self.server_socket:
-                # 소켓을 닫아 accept() 대기 상태를 해제
                 self.server_socket.close()
 
 
@@ -108,38 +111,33 @@ class AppController(QObject):
         self.app = app
         self.window = None
         self.receiver = TriggerReceiver()
-        
-        # 시그널과 슬롯 연결
         self.receiver.start_gui_signal.connect(self.show_gui)
 
     def run(self):
         """애플리케이션 시작: 수신기 실행"""
         self.receiver.start()
 
-    def show_gui(self):
+    # [수정] show_gui 함수가 vehicle_ip를 인자로 받도록 변경
+    def show_gui(self, vehicle_ip):
         """GUI를 생성하고 화면에 표시하는 슬롯 함수"""
-        if not self.window: # 윈도우가 아직 없는 경우에만 생성
-            print("🖥️  HyundaiStyleUI 인스턴스 생성 및 표시")
-            self.window = HyundaiStyleUI()
-            # self.window.show() # HyundaiStyleUI의 initUI에서 이미 showMaximized() 호출
+        if not self.window:
+            print(f"🖥️  HyundaiStyleUI 인스턴스 생성 (대상 차량 IP: {vehicle_ip})")
+            # [수정] HyundaiStyleUI 생성자에 vehicle_ip를 전달
+            self.window = HyundaiStyleUI(vehicle_ip=vehicle_ip)
         else:
             print("🖥️  이미 UI가 실행 중입니다.")
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    
-    # 전역 스타일 설정
-    from PyQt5.QtGui import QFont
-    from PyQt5.QtCore import Qt
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+    
+    app = QApplication(sys.argv)
     font = QFont("Malgun Gothic")
     font.setPointSize(11)
     app.setFont(font)
     app.setStyle('Fusion')
 
-    # 애플리케이션 컨트롤러 실행
     controller = AppController(app)
     controller.run()
 

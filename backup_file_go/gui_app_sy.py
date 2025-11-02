@@ -16,52 +16,20 @@ from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProp
                           QPointF, QSequentialAnimationGroup, QObject, pyqtSignal) # 👈 QObject, pyqtSignal 추가
 
 # ===================================================================
-# 목적지 매핑 함수
+# ❗ Wi-Fi 데이터 전송 클래스 (ESP32와의 통신을 담당)
+# main_launcher_sy.py로부터 받은 ESP32 IP 주소를 사용하여 데이터 전송
 # ===================================================================
-def get_destination_number(destination_name):
-    """목적지 이름을 숫자로 변환 (RSSI.c 형식에 맞춤)"""
-    destination_mapping = {
-        "백화점 본관 입구": 0,
-        "영화관 입구": 1,
-        "문화시설 입구": 2
-    }
-    return destination_mapping.get(destination_name, 0)  # 기본값은 0 (백화점 본관 입구)
-
-def get_destination_name(destination_number):
-    """숫자를 목적지 이름으로 변환"""
-    number_mapping = {
-        0: "백화점 본관 입구",
-        1: "영화관 입구", 
-        2: "문화시설 입구"
-    }
-    return number_mapping.get(destination_number, "백화점 본관 입구")  # 기본값은 백화점 본관 입구
-
-# ===================================================================
-# Wi-Fi 통신 설정
-# ===================================================================
-WIFI_CONFIG = {
-    'target_ip': '192.168.204.151',
-    'port': 7777
-}
-
-# ===================================================================
-# ❗ [수정] Wi-Fi 데이터 전송 클래스 (시그널-슬롯 방식 적용)
-# ===================================================================
-class WifiSender(QObject): # 👈 QObject 상속
-    """선택된 주차 정보를 다른 기기로 전송하는 클라이언트 클래스"""
-    # 전송 작업이 완료되었을 때 발생시킬 신호(Signal) 정의
+class WifiSender(QObject):
     send_finished = pyqtSignal()
-    # 전송 실패 시 오류 메시지를 전달할 신호 정의
     send_error = pyqtSignal(str)
 
     def __init__(self, host, port):
-        super().__init__() # 👈 QObject 초기화
+        super().__init__()
         self.host = host
         self.port = port
-        print(f"📡 WifiSender 초기화 -> 대상: {self.host}:{self.port}")
+        print(f"📡 WifiSender 초기화 -> ESP32 연결 대상: {self.host}:{self.port}")
 
     def send_data(self, data):
-        """데이터 전송을 백그라운드 스레드에서 시작합니다."""
         thread = threading.Thread(target=self._send_in_background, args=(data,))
         thread.daemon = True
         thread.start()
@@ -71,35 +39,23 @@ class WifiSender(QObject): # 👈 QObject 상속
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(3)
-                print(f"연결 시도 중... -> {self.host}:{self.port}")
+                print(f"📡 ESP32 연결 시도 중... -> {self.host}:{self.port}")
                 s.connect((self.host, self.port))
                 data['timestamp'] = datetime.datetime.now().isoformat()
                 message = json.dumps(data)
-
-                print("\n" + "="*50)
-                print("📩 전송할 데이터:")
-                print(json.dumps(data, indent=2, ensure_ascii=False))
-                print("="*50 + "\n")
-
                 s.sendall(message.encode('utf-8'))
-                print(f"🚀 데이터 전송 성공: {message}")
+                print(f"🚀 ESP32로 데이터 전송 성공!")
+                print(f"📤 전송 내용: {message}")
                 response = s.recv(1024)
-                print(f"📬 서버 응답: {response.decode('utf-8')}")
-
-        except socket.timeout:
-            error_message = f"❌ 전송 실패: 연결 시간 초과. {self.host} 기기가 켜져 있고 같은 네트워크에 있는지 확인하세요."
-            print(error_message)
-        except ConnectionRefusedError:
-            error_message = "❌ 전송 실패: 연결이 거부되었습니다. 대상 기기에서 수신 프로그램이 실행 중인지 확인하세요."
-            print(error_message)
+                print(f"📬 ESP32 응답: {response.decode('utf-8')}")
         except Exception as e:
-            error_message = f"❌ 전송 중 알 수 없는 오류 발생: {e}"
+            error_message = f"❌ ESP32 통신 오류: {e}"
             print(error_message)
         finally:
-            # 오류가 발생했다면 send_error 신호를, 그렇지 않으면 send_finished 신호를 보냄
             if error_message:
                 self.send_error.emit(error_message)
             else:
+                self.send_finished.emit()
                 self.send_finished.emit() # 👈 성공/실패와 관계없이 작업 완료 신호 발생
 
 
@@ -243,7 +199,7 @@ class AnimatedButton(QPushButton):
                     stop:0 rgba(0, 44, 95, 0.8), stop:1 rgba(0, 127, 163, 0.8));
                 color: white; border: 2px solid rgba(0, 170, 210, 0.5);
                 border-radius: 25px; font-size: {FONT_SIZES['button']}pt;
-                font-weight: bold; padding: 15px 30px;
+                font-weight: bold; padding: 15px 30px; backdrop-filter: blur(10px);
             }}
             QPushButton:disabled {{
                 background: rgba(40, 50, 70, 0.8);
@@ -257,7 +213,7 @@ class AnimatedButton(QPushButton):
                     stop:0 rgba(0, 170, 210, 0.9), stop:1 rgba(0, 127, 163, 0.9));
                 color: white; border: 2px solid rgba(0, 170, 210, 0.8);
                 border-radius: 25px; font-size: {FONT_SIZES['button']}pt;
-                font-weight: bold; padding: 15px 30px;
+                font-weight: bold; padding: 15px 30px; backdrop-filter: blur(10px);
             }}
         """
         self.setStyleSheet(self.default_style)
@@ -329,7 +285,7 @@ class SimulationSetupScreen(BaseScreen):
         self.initUI()
 
     def initUI(self):
-        title = QLabel("Smart Parking System")
+        title = QLabel("SmartParking System")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"font-size: {FONT_SIZES['main_title']}pt; font-weight: bold; color: {HYUNDAI_COLORS['text_primary']}; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);")
 
@@ -388,8 +344,7 @@ class SimulationSetupScreen(BaseScreen):
         self.content_layout.addStretch(1)
 
     def check_selections(self):
-        if (self.vehicle_btn_group.checkedButton() and 
-            self.handicap_btn_group.checkedButton()):
+        if self.vehicle_btn_group.checkedButton() and self.handicap_btn_group.checkedButton():
             self.start_btn.setEnabled(True)
         else:
             self.start_btn.setEnabled(False)
@@ -444,69 +399,6 @@ class TransitionScreen(BaseScreen):
         if hasattr(self.parent_window, 'show_scenario'):
             self.parent_window.show_scenario(self.vehicle_type, self.is_handicapped)
 
-class DestinationSelectionScreen(BaseScreen):
-    """시뮬레이션 완료 후 목적지 선택 화면"""
-    def __init__(self, vehicle_type, is_handicapped, parent=None, preferred_spot=None):
-        super().__init__(parent)
-        self.vehicle_type = vehicle_type
-        self.is_handicapped = is_handicapped
-        self.preferred_spot = preferred_spot  # FingerprintAuthentication에서 전달받은 preferred_spot
-        self.initUI()
-
-    def initUI(self):
-        title = QLabel("목적지 선택")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet(f"font-size: {FONT_SIZES['main_title']}pt; font-weight: bold; color: {HYUNDAI_COLORS['text_primary']}; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);")
-
-        subtitle = QLabel("어디로 가시나요?")
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet(f"font-size: {FONT_SIZES['main_subtitle']}pt; color: {HYUNDAI_COLORS['text_secondary']};")
-
-        self.destination_btn_group = QButtonGroup(self)
-        self.destination_btn_group.setExclusive(True)
-
-        destination_buttons_layout = QVBoxLayout()
-        destination_buttons_layout.setSpacing(20)
-        
-        self.beauty_btn = AnimatedButton("🏬 백화점 본관 입구")
-        self.mart_btn = AnimatedButton("🎬 영화관 입구")
-        self.restaurant_btn = AnimatedButton("🎨 문화시설 입구")
-        
-        self.destination_btn_group.addButton(self.beauty_btn)
-        self.destination_btn_group.addButton(self.mart_btn)
-        self.destination_btn_group.addButton(self.restaurant_btn)
-        
-        destination_buttons_layout.addWidget(self.beauty_btn)
-        destination_buttons_layout.addWidget(self.mart_btn)
-        destination_buttons_layout.addWidget(self.restaurant_btn)
-
-        self.beauty_btn.clicked.connect(lambda: self.select_destination('백화점 본관 입구'))
-        self.mart_btn.clicked.connect(lambda: self.select_destination('영화관 입구'))
-        self.restaurant_btn.clicked.connect(lambda: self.select_destination('문화시설 입구'))
-
-        self.content_layout.addStretch(1)
-        self.content_layout.addWidget(title)
-        self.content_layout.addWidget(subtitle)
-        self.content_layout.addSpacing(40)
-        self.content_layout.addLayout(destination_buttons_layout)
-        self.content_layout.addStretch(2)
-
-    def select_destination(self, destination):
-        if hasattr(self.parent_window, 'send_final_choice'):
-            # 목적지를 숫자로 변환 (RSSI.c 형식에 맞춤)
-            destination_number = get_destination_number(destination)
-            # preferred_spot 우선순위: FingerprintAuthentication에서 전달받은 값 > vehicle_type 기반 값
-            if self.preferred_spot:
-                preferred_spot = self.preferred_spot
-            else:
-                preferred_spot = 'electric' if self.vehicle_type == 'electric' else 'regular'
-            self.parent_window.send_final_choice(
-                self.vehicle_type,
-                self.is_handicapped,
-                destination_number,  # 숫자로 전송
-                preferred_spot  # 우선순위에 따라 동적으로 설정
-            )
-
 class FingerprintAuthentication(BaseScreen):
     def __init__(self, vehicle_type, is_handicapped, fallback_scenario, parent=None):
         super().__init__(parent)
@@ -550,10 +442,12 @@ class FingerprintAuthentication(BaseScreen):
         self.send_final_choice(self.fallback_scenario)
 
     def send_final_choice(self, preferred_spot):
-        # 장애인 인증 성공 시 preferred_spot을 저장하고 목적지 선택 화면으로 이동
-        self.preferred_spot = preferred_spot
-        if hasattr(self.parent_window, 'show_destination_selection'):
-            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped, preferred_spot)
+        if hasattr(self.parent_window, 'send_final_choice'):
+            self.parent_window.send_final_choice(
+                self.vehicle_type,
+                self.is_handicapped,
+                preferred_spot
+            )
 
 class ElectricVehicleOptions(BaseScreen):
     def __init__(self, vehicle_type, is_handicapped, parent=None):
@@ -587,8 +481,12 @@ class ElectricVehicleOptions(BaseScreen):
             self.parent_window.show_fingerprint_auth(self.vehicle_type, self.is_handicapped, 'regular')
 
     def send_final_choice(self, preferred_spot):
-        if hasattr(self.parent_window, 'show_destination_selection'):
-            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped, preferred_spot)
+        if hasattr(self.parent_window, 'send_final_choice'):
+            self.parent_window.send_final_choice(
+                self.vehicle_type,
+                self.is_handicapped,
+                preferred_spot
+            )
 
 class RegularVehicleResult(BaseScreen):
     def __init__(self, vehicle_type, is_handicapped, parent=None):
@@ -605,88 +503,107 @@ class RegularVehicleResult(BaseScreen):
         self.content_layout.addStretch(1); self.content_layout.addWidget(success_label); self.content_layout.addWidget(message); self.content_layout.addWidget(info); self.content_layout.addSpacing(30); self.content_layout.addWidget(confirm_btn); self.content_layout.addStretch(1)
 
     def confirm_and_launch(self):
-        if hasattr(self.parent_window, 'show_destination_selection'):
-            self.parent_window.show_destination_selection(self.vehicle_type, self.is_handicapped, 'regular')
+        if hasattr(self.parent_window, 'send_final_choice'):
+            self.parent_window.send_final_choice(
+                self.vehicle_type,
+                self.is_handicapped,
+                'regular'
+            )
 
 # ===================================================================
 # ❗ [수정] 메인 윈도우 (시그널-슬롯 연결)
 # ===================================================================
+# --- 메인 윈도우 ---
 class HyundaiStyleUI(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.wifi_sender = WifiSender(WIFI_CONFIG['target_ip'], WIFI_CONFIG['port'])
+    # main_launcher_sy.py로부터 ESP32 IP 주소를 받아 통신 설정
+    def __init__(self, vehicle_ip=None, parent=None):
+        super().__init__(parent)
         
-        # 👈 [추가] WifiSender의 신호를 메인 윈도우의 슬롯(메서드)에 연결
+        # vehicle_ip가 주어지지 않은 경우 (파일 단독 실행 테스트용)
+        if not vehicle_ip:
+            print("⚠️ 경고: ESP32 IP 주소 없이 HyundaiStyleUI가 생성되었습니다. (단독 테스트용)")
+            vehicle_ip = '127.0.0.1' # 로컬호스트로 기본값 설정
+        else:
+            print(f"🎯 ESP32 IP 주소 수신: {vehicle_ip}")
+            
+        # 전달받은 ESP32 IP 주소를 사용하여 WifiSender 초기화 (포트 7777)
+        self.wifi_sender = WifiSender(vehicle_ip, 7777)
+        
         self.wifi_sender.send_finished.connect(self.launch_parking_ui)
         self.wifi_sender.send_error.connect(self.handle_send_error)
         
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Smart Parking System')
+        self.setWindowTitle('HYUNDAI SmartParking System')
         self.resize(1280, 800)
         self.setMinimumSize(1000, 700)
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        self.status_bar = StatusBar()
+        
+        # (이 부분은 생략되어 있었으므로 다시 추가합니다)
+        self.status_bar = StatusBar() 
         main_layout.addWidget(self.status_bar)
+        
         self.stacked_widget = QStackedWidget()
         self.home_screen = SimulationSetupScreen(self)
         self.stacked_widget.addWidget(self.home_screen)
         main_layout.addWidget(self.stacked_widget)
         self.setLayout(main_layout)
-        self.setStyleSheet(f"background-color: {HYUNDAI_COLORS['background']};")
+        self.setStyleSheet("background-color: #0A0E1A;")
         self.showMaximized()
 
-    def send_final_choice(self, vehicle_type, is_handicapped, destination, preferred_spot):
-        """
-        [수정] 최종 선택 정보를 받아 전송만 요청합니다.
-        UI 실행은 `send_finished` 신호를 받아 처리합니다.
-        """
+    def send_final_choice(self, vehicle_type, is_handicapped, preferred_spot):
+        """사용자가 선택한 정보를 ESP32로 전송합니다."""
         elec_val = "true" if vehicle_type == 'electric' else "false"
         disabled_val = "true" if is_handicapped else "false"
-        
         preferred_map = {'regular': 'normal', 'electric': 'elec', 'disabled': 'disabled'}
         preferred_val = preferred_map.get(preferred_spot, 'normal')
-
+        
         final_data = {
             "elec": elec_val, 
             "disabled": disabled_val, 
-            "preferred": preferred_val, 
-            "destination": destination  # 목적지 정보 추가
+            "preferred": preferred_val
         }
         
-        # 👈 데이터 전송 요청만 하고 함수는 종료됨
-        self.wifi_sender.send_data(final_data)
+        print(f"📤 사용자 선택 정보 ESP32로 전송:")
+        print(f"   전기차 여부: {elec_val}")
+        print(f"   장애인 여부: {disabled_val}")
+        print(f"   선호 주차구역: {preferred_val}")
         
-        # 👈 self.launch_parking_ui() 호출은 여기서 제거!
+        self.wifi_sender.send_data(final_data)
 
     def launch_parking_ui(self):
-        """[슬롯] `send_finished` 신호를 받으면 호출됩니다."""
         try:
             script_name = 'UI_testing.py'
             print(f"\n✅ 전송 성공! 다음 UI 실행 시도: {script_name}")
             subprocess.Popen([sys.executable, script_name])
             QApplication.quit()
-        except FileNotFoundError:
-            print(f"❌ 실행 실패: {script_name} 파일을 찾을 수 없습니다.")
-            self.show_home() # 오류 발생 시 홈 화면으로 복귀
         except Exception as e:
-            print(f"❌ 실행 실패: {script_name} 실행 중 오류 발생: {e}")
-            self.show_home() # 오류 발생 시 홈 화면으로 복귀
+            print(f"❌ 실행 실패: {e}")
+            self.show_home()
 
     def handle_send_error(self, error_message):
-        """[슬롯] `send_error` 신호를 받으면 호출됩니다."""
-        # 여기서는 간단히 홈 화면으로 돌아가지만,
-        # 필요하다면 사용자에게 오류 메시지를 보여주는 팝업을 띄울 수도 있습니다.
-        print("데이터 전송 실패로 인해 홈 화면으로 돌아갑니다.")
+        print(f"데이터 전송 실패({error_message})로 인해 홈 화면으로 돌아갑니다.")
         self.show_home()
 
-    # --- 이하 화면 전환 메서드는 변경 없음 ---
+    # --- 화면 전환 메서드들 ---
+    def show_home(self):
+        # 모든 추가된 화면을 제거하고 홈 화면(인덱스 0)으로 돌아감
+        while self.stacked_widget.count() > 1:
+            widget = self.stacked_widget.widget(1)
+            self.stacked_widget.removeWidget(widget)
+            widget.deleteLater()
+        self.stacked_widget.setCurrentIndex(0)
+    
+    def switch_screen(self, new_screen):
+        self.show_home() # 기존 화면 정리
+        self.stacked_widget.addWidget(new_screen)
+        self.stacked_widget.setCurrentWidget(new_screen)
+
     def show_transition(self, vehicle_type, is_handicapped):
-        transition_screen = TransitionScreen(vehicle_type, is_handicapped, self)
-        self.switch_screen(transition_screen)
+        self.switch_screen(TransitionScreen(vehicle_type, is_handicapped, self))
 
     def show_scenario(self, vehicle_type, is_handicapped):
         if vehicle_type == 'regular':
@@ -696,50 +613,28 @@ class HyundaiStyleUI(QWidget):
                 self.show_regular_result(vehicle_type, is_handicapped)
         elif vehicle_type == 'electric':
             self.show_electric_options(vehicle_type, is_handicapped)
-
+    
+    # ... (show_fingerprint_auth, show_electric_options 등 나머지 show 함수들) ...
     def show_fingerprint_auth(self, vehicle_type, is_handicapped, fallback_scenario):
-        fingerprint_screen = FingerprintAuthentication(vehicle_type, is_handicapped, fallback_scenario, self)
-        self.switch_screen(fingerprint_screen)
+        self.switch_screen(FingerprintAuthentication(vehicle_type, is_handicapped, fallback_scenario, self))
 
     def show_electric_options(self, vehicle_type, is_handicapped):
-        electric_screen = ElectricVehicleOptions(vehicle_type, is_handicapped, self)
-        self.switch_screen(electric_screen)
+        self.switch_screen(ElectricVehicleOptions(vehicle_type, is_handicapped, self))
 
     def show_regular_result(self, vehicle_type, is_handicapped):
-        result_screen = RegularVehicleResult(vehicle_type, is_handicapped, self)
-        self.switch_screen(result_screen)
-
-    def show_destination_selection(self, vehicle_type, is_handicapped, preferred_spot=None):
-        destination_screen = DestinationSelectionScreen(vehicle_type, is_handicapped, self, preferred_spot)
-        self.switch_screen(destination_screen)
-
-    def switch_screen(self, new_screen):
-        while self.stacked_widget.count() > 1:
-            widget = self.stacked_widget.widget(1)
-            self.stacked_widget.removeWidget(widget)
-            widget.deleteLater()
-
-        self.stacked_widget.addWidget(new_screen)
-        self.stacked_widget.setCurrentWidget(new_screen)
-
-    def show_home(self):
-        while self.stacked_widget.count() > 1:
-            widget_to_remove = self.stacked_widget.widget(1)
-            self.stacked_widget.removeWidget(widget_to_remove)
-            widget_to_remove.deleteLater()
-        self.stacked_widget.setCurrentIndex(0)
+        self.switch_screen(RegularVehicleResult(vehicle_type, is_handicapped, self))
 
 
+# 이 파일을 단독으로 실행할 때를 위한 테스트 코드
 if __name__ == '__main__':
+    app = QApplication(sys.argv)
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
-
-    app = QApplication(sys.argv)
-
     font = QFont("Malgun Gothic")
     font.setPointSize(11)
     app.setFont(font)
     app.setStyle('Fusion')
-
-    ex = HyundaiStyleUI()
+    
+    # 단독 테스트 시에는 가상의 IP 주소를 넣어 실행
+    ex = HyundaiStyleUI(vehicle_ip='192.168.1.100')
     sys.exit(app.exec_())

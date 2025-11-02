@@ -19,7 +19,7 @@ from PyQt5.QtGui import (
     QLinearGradient, QRadialGradient, QTransform, QFontMetrics
 )
 from PyQt5.QtCore import (
-    Qt, QPointF, QRectF, pyqtSignal, QTimer, QPropertyAnimation,
+    Qt, QPointF, QRecgit tF, pyqtSignal, QTimer, QPropertyAnimation,
     pyqtProperty, QEasingCurve, QParallelAnimationGroup
 )
 
@@ -893,8 +893,8 @@ class ParkingLotUI(QWidget):
             # 주차 구역에 해당하는 경우: 흰색, 20픽셀 테두리
             pen = QPen(QColor("white"), 20)
             r.setPen(pen)
-        elif label in ["A", "B", "C"]:
-            # A, B, C: 노랑색 테두리로 통일
+        elif label in ["미용실", "마트", "식당"]:
+            # 미용실, 마트, 식당: 노랑색 테두리로 통일
             pen = QPen(QColor(255, 255, 0), 20)  # 노랑색
             r.setPen(pen)
         elif "입출차" in label:
@@ -911,8 +911,8 @@ class ParkingLotUI(QWidget):
             t = QGraphicsSimpleTextItem(label)
             t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             t.setBrush(QColor(255,255,255))
-            # A, B, C은 폰트 크기를 2.25배로 설정 (1.5 * 1.5)
-            if label in ["A", "B", "C"]:
+            # 미용실, 마트, 식당은 폰트 크기를 2.25배로 설정 (1.5 * 1.5)
+            if label in ["미용실", "마트", "식당"]:
                 font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 2.25), QFont.Bold)
             # 주차구역은 폰트 크기를 1.5배로 설정
             elif label in ["장애인", "전기", "일반"]:
@@ -943,10 +943,10 @@ class ParkingLotUI(QWidget):
         # 입출차 구역 추가
         self.add_block(0, 0, 400, 400, c_io, "입출차")
         
-        # 목적지 블록들 (입출차 제외) - C 제외
+        # 목적지 블록들 (입출차 제외) - 식당 제외
         base = [
-            (-400, 1600, 400, 400, c_emp, "A"),  # A
-            (1600, 1600, 400, 400, c_emp, "B"),    # B
+            (-400, 1600, 400, 400, c_emp, "미용실"),  # 미용실
+            (1600, 1600, 400, 400, c_emp, "마트"),    # 마트
             (550, 1050, 800, 300, c_obs, "장애물")    # 금지구역
         ]
         
@@ -975,8 +975,8 @@ class ParkingLotUI(QWidget):
         # 주차구역을 추가
         for x, y, w, h, c, l in parking_spots: self.add_block(x, y, w, h, c, l)
         
-        # C 추가
-        self.add_block(1600, 400, 400, 400, c_emp, "C")
+        # 식당 추가
+        self.add_block(1600, 400, 400, 400, c_emp, "식당")
         
         # 7번 주차구역 추가
         self.add_block(1600, 800, 400, 400, c_dis, "장애인")
@@ -999,9 +999,9 @@ class ParkingLotUI(QWidget):
         for x,y,w,h,c,l in [
             (550,1050,800,300,0,""),      # 금지구역
             (400,0,1600,400,0,""),        # 하단 통행금지구역
-            (1600,400,400,400,0,""),      # C
-            (1600,1600,400,400,0,""),     # B
-            (-400,1600,400,400,0,""),     # A
+            (1600,400,400,400,0,""),      # 식당
+            (1600,1600,400,400,0,""),     # 마트
+            (-400,1600,400,400,0,""),     # 미용실
             (0,0,400,400,0,"")            # 입출차
         ]: 
             block_rect(x,y,w,h)

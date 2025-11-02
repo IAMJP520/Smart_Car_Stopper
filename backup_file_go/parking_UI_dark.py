@@ -10,7 +10,7 @@ from typing import List, Tuple, Optional
 
 from PyQt5.QtWidgets import (
     QApplication, QGraphicsScene, QGraphicsView, QGraphicsRectItem,
-    QGraphicsSimpleTextItem, QGraphicsEllipseItem, QGraphicsPolygonItem,
+    QGraphicsSimpleTextItem, QGraphicsEllipseItem,
     QPushButton, QWidget, QVBoxLayout, QHBoxLayout, QGraphicsItem,
     QLineEdit, QLabel, QMessageBox, QGraphicsItemGroup, QFrame, QGraphicsObject
 )
@@ -201,40 +201,6 @@ class PremiumHudWidget(QFrame):
         self.direction_transition = 0.0
         self.target_direction = "직진"
         self.previous_direction = "직진"
-        
-        # 출차 시나리오 버튼 추가
-        self.exit_scenario_button = QPushButton("출차 시나리오 시작", self)
-        self.exit_scenario_button.setGeometry(50, 650, 350, 40)
-        self.exit_scenario_button.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {HYUNDAI_COLORS['accent']}, 
-                    stop:1 {HYUNDAI_COLORS['blue_muted']});
-                color: {HYUNDAI_COLORS['text_primary']};
-                border: 2px solid {HYUNDAI_COLORS['blue_soft']};
-                border-radius: 20px;
-                font-size: 16px;
-                font-weight: bold;
-                font-family: 'Malgun Gothic';
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {HYUNDAI_COLORS['blue_soft']}, 
-                    stop:1 {HYUNDAI_COLORS['accent']});
-                border: 2px solid {HYUNDAI_COLORS['text_primary']};
-            }}
-            QPushButton:pressed {{
-                background: {HYUNDAI_COLORS['blue_muted']};
-                border: 2px solid {HYUNDAI_COLORS['warning']};
-            }}
-        """)
-        self.exit_scenario_button.clicked.connect(self.start_exit_scenario)
-
-    def start_exit_scenario(self):
-        """출차 시나리오 시작"""
-        # 부모 위젯(ParkingLotUI)의 출차 시나리오 메서드 호출
-        if hasattr(self.parent(), 'start_exit_scenario'):
-            self.parent().start_exit_scenario()
 
     def init_particles(self):
         self.particle_positions = []
@@ -313,12 +279,10 @@ class PremiumHudWidget(QFrame):
         
         # 메인 원형 배경 (더 심플하게)
         painter.scale(self.pulse_scale, self.pulse_scale)
-        is_warning = self.current_distance <= 0 and ("좌회전" in self.current_direction or "우회전" in self.current_direction)
-        is_exit_complete = "출차 완료" in self.current_direction
-        is_destination_arrival = "목적지 도착" in self.current_direction
+        is_warning = self.current_distance <= 0 and ("좌회전" in self.current_direction or "우회전" in self.current_direction or "목적지" in self.current_direction)
         
-        if is_warning or is_exit_complete or is_destination_arrival:
-            # 경고 색상, 출차 완료 색상, 목적지 도착 색상 (소프트 오렌지)
+        if is_warning:
+            # 경고 색상 (소프트 오렌지)
             main_color = QColor(HYUNDAI_COLORS['warning'])
             bg_color = main_color.darker(150)
         else:
@@ -357,8 +321,6 @@ class PremiumHudWidget(QFrame):
             action = self.draw_3d_right_arrow
         elif "목적지" in self.current_direction:
             action = self.draw_3d_destination_icon
-        elif "출차 완료" in self.current_direction:
-            action = self.draw_3d_exit_complete_icon
 
         if action:
             painter.translate(2, 2)  # 그림자 오프셋 줄임
@@ -395,26 +357,13 @@ class PremiumHudWidget(QFrame):
         if shadow:
             painter.drawEllipse(QPointF(x, y), 25, 25)
         else:
-            # 목적지 도착 아이콘 (주황색 원)
-            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['warning'])))
+            # 더 세련된 목적지 아이콘
+            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['danger'])))
             painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 2))
             painter.drawEllipse(QPointF(x, y), 25, 25)
             painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['white_soft'])))
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(QPointF(x, y), 8, 8)
-
-    def draw_3d_exit_complete_icon(self, painter, x, y, shadow=False):
-        if shadow:
-            painter.drawEllipse(QPointF(x, y), 25, 25)
-        else:
-            # 출차 완료 아이콘 (주황색 원)
-            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['warning'])))
-            painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 2))
-            painter.drawEllipse(QPointF(x, y), 25, 25)
-            # 중앙에 체크마크 그리기
-            painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 3))
-            painter.drawLine(QPointF(x-8, y), QPointF(x-2, y+6))
-            painter.drawLine(QPointF(x-2, y+6), QPointF(x+8, y-6))
 
     def draw_distance_panel(self, painter, center_x, y):
         painter.save()
@@ -435,8 +384,6 @@ class PremiumHudWidget(QFrame):
             text_color = QColor(HYUNDAI_COLORS['warning'])
         elif self.current_distance <= 20:
             text_color = QColor(HYUNDAI_COLORS['success'])
-        elif "출차 완료" in self.current_direction or "목적지 도착" in self.current_direction:
-            text_color = QColor(HYUNDAI_COLORS['warning'])
         else:
             text_color = QColor(HYUNDAI_COLORS['blue_soft'])
             
@@ -462,11 +409,7 @@ class PremiumHudWidget(QFrame):
         
         # 진행 아크 (더 심플한 색상)
         speed_angle = min(180, (self.speed / 100) * 180)
-        # 출차 완료 또는 목적지 도착 시 주황색으로 변경
-        if "출차 완료" in self.current_direction or "목적지 도착" in self.current_direction:
-            painter.setPen(QPen(QColor(HYUNDAI_COLORS['warning']), 6))
-        else:
-            painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 6))
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 6))
         painter.drawArc(gauge_rect, 0, int(speed_angle * 16))
         
         # 속도 텍스트
@@ -495,11 +438,7 @@ class PremiumHudWidget(QFrame):
         # 진행 바
         if self.progress > 0:
             progress_rect = QRectF(bar_rect.x(), bar_rect.y(), (self.progress / 100) * bar_width, bar_height)
-            # 출차 완료 또는 목적지 도착 시 주황색으로 변경
-            if "출차 완료" in self.current_direction or "목적지 도착" in self.current_direction:
-                painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['warning'])))
-            else:
-                painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['blue_soft'])))
+            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['blue_soft'])))
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(progress_rect, 6, 6)
         
@@ -541,8 +480,6 @@ class PremiumHudWidget(QFrame):
             self.draw_mini_right_arrow(painter, icon_x, icon_y)
         elif "목적지" in self.next_direction or "도착" in self.next_direction:
             self.draw_mini_destination(painter, icon_x, icon_y)
-        elif "출차 완료" in self.next_direction:
-            self.draw_mini_exit_complete(painter, icon_x, icon_y)
         else:
             self.draw_mini_straight(painter, icon_x, icon_y)
         
@@ -561,19 +498,10 @@ class PremiumHudWidget(QFrame):
     def draw_mini_straight(self, painter, x, y): 
         painter.drawPolygon(QPolygonF([QPointF(x,y-12),QPointF(x-6,y-4),QPointF(x-3,y-4),QPointF(x-3,y+8),QPointF(x+3,y+8),QPointF(x+3,y-4),QPointF(x+6,y-4)]))
     def draw_mini_destination(self, painter, x, y):
-        # 목적지 도착 시 주황색으로 변경
-        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['warning'])))
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['danger'])))
         painter.drawEllipse(QPointF(x,y), 8, 8)
         painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['white_soft'])))
         painter.drawEllipse(QPointF(x,y), 3, 3)
-
-    def draw_mini_exit_complete(self, painter, x, y):
-        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['warning'])))
-        painter.drawEllipse(QPointF(x,y), 8, 8)
-        # 중앙에 작은 체크마크 그리기
-        painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 2))
-        painter.drawLine(QPointF(x-3, y), QPointF(x-1, y+2))
-        painter.drawLine(QPointF(x-1, y+2), QPointF(x+3, y-2))
 
     def draw_decorative_elements(self, painter, rect):
         painter.save()
@@ -781,7 +709,6 @@ class ParkingLotUI(QWidget):
         self.full_path_points = []
         self.snapped_waypoints = []
         self.current_path_segment_index = 0
-        self.is_exit_scenario = False  # 출차 시나리오 상태 추적
         self.car = CarItem()
         self.car.positionChanged.connect(self.update_hud_from_car_position)
         self.scene.addItem(self.car)
@@ -822,38 +749,32 @@ class ParkingLotUI(QWidget):
         self.car.setPos(new_pos)
 
     def calculate_and_display_route(self):
-        """받은 웨이포인트들을 직선으로 연결하여 경로를 표시합니다."""
         if not self.received_waypoints:
-            QMessageBox.warning(self, "경로 오류", "경로를 계산할 웨이포인트가 없습니다.")
-            return
+            QMessageBox.warning(self, "경로 오류", "경로를 계산할 웨이포인트가 없습니다."); return
 
-        print(f"🗺️ 웨이포인트 경로 생성: {self.received_waypoints}")
+        start_point = self.car.pos() if self.car.isVisible() else self.ENTRANCE
+        waypoints_qpoints = [self.clamp_point(QPointF(p[0], p[1])) for p in self.received_waypoints]
+        self.snapped_waypoints = [self.find_nearest_free_cell_from_point(p) for p in waypoints_qpoints]
         
-        # 시작점은 항상 입구 (200, 200)
-        start_point = QPointF(200, 200)
+        segments, prev = [], start_point
+        for goal in self.snapped_waypoints:
+            c = self.astar(prev, goal)
+            if not c: QMessageBox.warning(self, "경로 실패", f"경로를 찾을 수 없습니다: {prev.x():.0f},{prev.y():.0f} -> {goal.x():.0f},{goal.y():.0f}"); return
+            segments.append(c); prev = goal
         
-        # 받은 웨이포인트들을 QPointF로 변환
-        waypoints_qpoints = [QPointF(p[0], p[1]) for p in self.received_waypoints]
+        whole = [c for i, seg in enumerate(segments) for c in (seg if i == 0 else seg[1:])]
+        self.full_path_points = [self.cell_to_pt_center(c) for c in self.simplify_cells(whole)]
+        if not self.full_path_points: return
+
+        self.full_path_points[0], self.full_path_points[-1] = start_point, self.snapped_waypoints[-1]
         
-        # 전체 경로: 시작점 + 웨이포인트들
-        self.full_path_points = [start_point] + waypoints_qpoints
-        
-        print(f"✅ 최종 경로: {len(self.full_path_points)}개 포인트")
-        for i, point in enumerate(self.full_path_points):
-            print(f"  {i+1}. ({point.x():.1f}, {point.y():.1f})")
-        
-        # 기존 경로 클리어 후 새 경로 그리기
         self.clear_path_layer()
         self.draw_straight_path(self.full_path_points)
         
-        # 차량 위치 설정
         self.current_path_segment_index = 0
-        self.is_exit_scenario = False  # 일반 주차 시나리오로 설정
-        
         if not self.car.isVisible():
             self.car.setPos(start_point)
             self.car.show()
-        
         self.update_hud_from_car_position(self.car.pos())
 
     def showEvent(self, event):
@@ -889,17 +810,10 @@ class ParkingLotUI(QWidget):
             r.setBrush(QBrush(color))
             
         # 펜(테두리) 설정 - 요청사항 반영
-        if "장애인" in label or "전기" in label or "일반" in label:
-            # 주차 구역에 해당하는 경우: 흰색, 20픽셀 테두리
-            pen = QPen(QColor("white"), 20)
+        if "장애인" in label or "전기차" in label or "일반" in label:
+            # 1~17번 주차 구역에 해당하는 경우: 흰색, 10픽셀 테두리
+            pen = QPen(QColor("white"), 10)
             r.setPen(pen)
-        elif label in ["A", "B", "C"]:
-            # A, B, C: 노랑색 테두리로 통일
-            pen = QPen(QColor(255, 255, 0), 20)  # 노랑색
-            r.setPen(pen)
-        elif "입출차" in label:
-            # 입출차 구역은 테두리 없음
-            r.setPen(QPen(Qt.NoPen))
         else:
             # 그 외의 블록(장애물, 입출차 구역 등)은 기존 테두리 유지
             r.setPen(QPen(QColor(255,255,255,100), 2))
@@ -911,14 +825,7 @@ class ParkingLotUI(QWidget):
             t = QGraphicsSimpleTextItem(label)
             t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             t.setBrush(QColor(255,255,255))
-            # A, B, C은 폰트 크기를 2.25배로 설정 (1.5 * 1.5)
-            if label in ["A", "B", "C"]:
-                font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 2.25), QFont.Bold)
-            # 주차구역은 폰트 크기를 1.5배로 설정
-            elif label in ["장애인", "전기", "일반"]:
-                font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 1.5), QFont.Bold)
-            else:
-                font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
+            font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold)
             t.setFont(font)
             t.setPos(x+5,y+h-25)
             t.setParentItem(self.layer_static)
@@ -926,63 +833,22 @@ class ParkingLotUI(QWidget):
     def add_hatched(self, x, y, w, h, edge=QColor("black"), fill=QColor(220, 20, 60, 90)):
         r = QGraphicsRectItem(QRectF(x,y,w,h)); b = QBrush(fill); b.setStyle(Qt.BDiagPattern); r.setBrush(b); r.setPen(QPen(edge,3)); r.setParentItem(self.layer_static)
         t = QGraphicsSimpleTextItem("통행 불가"); t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True); t.setBrush(QColor(255,100,100))
-        font = QFont("Malgun Gothic", int(FONT_SIZES['map_label'] * 1.5), QFont.Bold); t.setFont(font); t.setPos(x+10,y+h-30); t.setParentItem(self.layer_static)
+        font = QFont("Malgun Gothic", FONT_SIZES['map_label'], QFont.Bold); t.setFont(font); t.setPos(x+10,y+h-30); t.setParentItem(self.layer_static)
 
     def add_dot_label_static(self, p: QPointF, text: str, color=QColor("blue")):
-        # 점(원형) 제거 - 텍스트만 표시
+        d = QGraphicsEllipseItem(p.x()-8,p.y()-8,16,16); gradient = QLinearGradient(p.x()-8,p.y()-8,p.x()+8,p.y()+8); gradient.setColorAt(0,QColor(0,170,210)); gradient.setColorAt(1,QColor(0,44,95)); d.setBrush(QBrush(gradient)); d.setPen(QPen(QColor(255,255,255),3)); d.setParentItem(self.layer_static)
         t = QGraphicsSimpleTextItem(text); t.setFlag(QGraphicsItem.ItemIgnoresTransformations, True); t.setBrush(QColor(0,200,255))
         font = QFont("Malgun Gothic", FONT_SIZES['map_io_label'], QFont.Bold); t.setFont(font); t.setPos(p.x()-20,p.y()+25); t.setParentItem(self.layer_static)
 
     def build_static_layout(self):
         c_dis, c_ele, c_gen, c_obs, c_emp, c_io = QColor(135, 206, 250), QColor(0, 200, 130), QColor("#303030"), QColor(108, 117, 125), QColor(206, 212, 218), QColor("#303030")
         border = QGraphicsRectItem(0, 0, self.SCENE_W, self.SCENE_H); border.setPen(QPen(QColor(0, 170, 210), 12)); border.setBrush(QBrush(Qt.NoBrush)); border.setParentItem(self.layer_static)
-        
-        # 통행불가 구역을 가장 먼저 추가 (맨 뒤로 보내기 위해)
-        self.add_hatched(400, 0, 1600, 400)
-        
-        # 입출차 구역 추가
-        self.add_block(0, 0, 400, 400, c_io, "입출차")
-        
-        # 목적지 블록들 (입출차 제외) - C 제외
-        base = [
-            (-400, 1600, 400, 400, c_emp, "A"),  # A
-            (1600, 1600, 400, 400, c_emp, "B"),    # B
-            (550, 1050, 800, 300, c_obs, "장애물")    # 금지구역
-        ]
-        
-        # 새로운 주차구역들 (1~11번) - 7번, 8번 제외
-        parking_spots = [
-            # 1~5번 주차구역 (상단 주차구역)
-            (0, 1600, 400, 400, c_dis, "장애인"),      # 장애인 구역
-            (400, 1600, 300, 400, c_gen, "일반"),    # 일반 구역
-            (700, 1600, 300, 400, c_gen, "일반"),    # 일반 구역
-            (1000, 1600, 300, 400, c_ele, "전기"),   # 전기차 구역
-            (1300, 1600, 300, 400, c_ele, "전기"),   # 전기차 구역
-            
-            # 6번 주차구역 (우측 주차구역)
-            (1600, 1200, 400, 400, c_dis, "장애인"),   # 장애인 구역
-            
-            # 9~11번 주차구역 (하단 주차구역) - 7번, 8번 제외
-            (1000, 400, 300, 400, c_gen, "일반"),     # 일반 구역
-            (700, 400, 300, 400, c_ele, "전기"),    # 전기차 구역
-            (400, 400, 300, 400, c_ele, "전기")      # 전기차 구역
-        ]
-        
+        base = [(0, 1600, 300, 400, c_dis, "장애인"), (300, 1600, 300, 400, c_dis, "장애인"), (600, 1600, 200, 400, c_gen, "일반"), (800, 1600, 200, 400, c_gen, "일반"), (1000, 1600, 200, 400, c_gen, "일반"), (1200, 1600, 200, 400, c_ele, "전기차"), (1400, 1600, 200, 400, c_ele, "전기차"), (1600, 1600, 400, 400, c_emp, "101"), (550, 1050, 800, 300, c_obs, "장애물"), (1600, 400, 400, 400, c_emp, "102"), (0, 0, 400, 400, c_io, "입출차")]
         for x, y, w, h, c, l in base: self.add_block(x, y, w, h, c, l)
-        
+        for i in range(6): self.add_block(400 + i * 200, 400, 200, 400, c_gen, "일반")
+        for i in range(4): self.add_block(1600, 800 + i * 200, 400, 200, c_gen, "일반")
+        self.add_hatched(400, 0, 1600, 400)
         self.add_dot_label_static(self.ENTRANCE, "입구", QColor(0, 170, 210))
-        
-        # 주차구역을 추가
-        for x, y, w, h, c, l in parking_spots: self.add_block(x, y, w, h, c, l)
-        
-        # C 추가
-        self.add_block(1600, 400, 400, 400, c_emp, "C")
-        
-        # 7번 주차구역 추가
-        self.add_block(1600, 800, 400, 400, c_dis, "장애인")
-        
-        # 8번 주차구역을 가장 마지막에 추가하여 가장 위에 표시되도록 함
-        self.add_block(1300, 400, 300, 400, c_gen, "일반")
 
     def build_occupancy(self):
         W, H, C = self.SCENE_W, self.SCENE_H, self.CELL; gx, gy = (W + C - 1) // C, (H + C - 1) // C
@@ -994,41 +860,9 @@ class ParkingLotUI(QWidget):
             for cy in range(cy0,cy1+1):
                 for cx in range(cx0,cx1+1):
                     if 0<=cx<gx and 0<=cy<gy: self.occ[cy*gx+cx] = 1
-        
-        # 목적지 및 장애물 블록들
-        for x,y,w,h,c,l in [
-            (550,1050,800,300,0,""),      # 금지구역
-            (400,0,1600,400,0,""),        # 하단 통행금지구역
-            (1600,400,400,400,0,""),      # C
-            (1600,1600,400,400,0,""),     # B
-            (-400,1600,400,400,0,""),     # A
-            (0,0,400,400,0,"")            # 입출차
-        ]: 
-            block_rect(x,y,w,h)
-        
-        # 새로운 주차구역들 (1~11번)
-        parking_blocks = [
-            # 1~5번 주차구역 (상단 주차구역)
-            (0, 1600, 400, 400, 0, ""),      # 1번
-            (400, 1600, 300, 400, 0, ""),    # 2번
-            (700, 1600, 300, 400, 0, ""),    # 3번
-            (1000, 1600, 300, 400, 0, ""),   # 4번
-            (1300, 1600, 300, 400, 0, ""),   # 5번
-            
-            # 6~7번 주차구역 (우측 주차구역)
-            (1600, 1200, 400, 400, 0, ""),   # 6번
-            (1600, 800, 400, 400, 0, ""),    # 7번
-            
-            # 8~11번 주차구역 (하단 주차구역)
-            (1300, 400, 300, 400, 0, ""),    # 8번
-            (1000, 400, 300, 400, 0, ""),    # 9번
-            (700, 400, 300, 400, 0, ""),     # 10번
-            (400, 400, 300, 400, 0, "")      # 11번
-        ]
-        
-        for x,y,w,h,c,l in parking_blocks: 
-            block_rect(x,y,w,h)
-        
+        for x,y,w,h,c,l in [(550,1050,800,300,0,""),(400,0,1600,400,0,""),(1600,400,400,400,0,""),(1600,1600,400,400,0,""),(0,1600,300,400,0,""),(300,1600,300,400,0,""),(600,1600,200,400,0,""),(800,1600,200,400,0,""),(1000,1600,200,400,0,""),(1200,1600,200,400,0,""),(1400,1600,200,400,0,"")]: block_rect(x,y,w,h)
+        for i in range(6): block_rect(400+i*200,400,200,400)
+        for i in range(4): block_rect(1600,800+i*200,400,200)
         self._occ_idx = idx
 
     def clamp_point(self, p: QPointF): return QPointF(min(self.SCENE_W-1.,max(0.,p.x())), min(self.SCENE_H-1.,max(0.,p.y())))
@@ -1036,77 +870,30 @@ class ParkingLotUI(QWidget):
     def cell_to_pt_center(self, c): return QPointF(c[0]*self.CELL+self.CELL/2., c[1]*self.CELL+self.CELL/2.)
     def is_cell_free(self, cx, cy): return 0<=cx<self.grid_w and 0<=cy<self.grid_h and self.occ[self._occ_idx(cx,cy)]==0
     
-    def find_nearest_free_cell_from_point(self, p: QPointF, max_radius_cells=100):
-        """주어진 점에서 가장 가까운 자유 셀을 찾습니다."""
+    def find_nearest_free_cell_from_point(self, p: QPointF, max_radius_cells=30):
         sx, sy = self.pt_to_cell(p)
-        print(f"🔍 자유 셀 검색: 원본 좌표 ({p.x():.1f}, {p.y():.1f}) -> 셀 ({sx}, {sy})")
-        
-        # 원본 셀이 자유하면 바로 반환
-        if self.is_cell_free(sx, sy): 
-            result = self.cell_to_pt_center((sx, sy))
-            print(f"✅ 원본 셀이 자유함: {result}")
-            return result
-            
-        # 주변에서 자유 셀 검색
+        if self.is_cell_free(sx, sy): return self.cell_to_pt_center((sx, sy))
         for r in range(1, max_radius_cells + 1):
             for dx in range(-r, r+1):
                 for dy in [-r, r]:
-                    if self.is_cell_free(sx+dx, sy+dy): 
-                        result = self.cell_to_pt_center((sx+dx, sy+dy))
-                        print(f"✅ 자유 셀 발견 (반경 {r}): ({sx+dx}, {sy+dy}) -> {result}")
-                        return result
+                    if self.is_cell_free(sx+dx, sy+dy): return self.cell_to_pt_center((sx+dx, sy+dy))
             for dy in range(-r+1, r):
                 for dx in [-r, r]:
-                    if self.is_cell_free(sx+dx, sy+dy): 
-                        result = self.cell_to_pt_center((sx+dx, sy+dy))
-                        print(f"✅ 자유 셀 발견 (반경 {r}): ({sx+dx}, {sy+dy}) -> {result}")
-                        return result
-        
-        # 자유 셀을 찾지 못한 경우 원본 셀 반환 (강제)
-        result = self.cell_to_pt_center((sx, sy))
-        print(f"⚠️ 자유 셀을 찾지 못함, 원본 셀 반환: {result}")
-        return result
+                    if self.is_cell_free(sx+dx, sy+dy): return self.cell_to_pt_center((sx+dx, sy+dy))
+        return self.cell_to_pt_center((sx, sy))
 
     def astar(self, start_pt: QPointF, goal_pt: QPointF):
-        """A* 알고리즘으로 경로를 찾습니다."""
         sx, sy = self.pt_to_cell(start_pt)
         gx, gy = self.pt_to_cell(goal_pt)
         W, H = self.grid_w, self.grid_h
         occ, idx = self.occ, self._occ_idx
-        
-        print(f"🗺️ A* 경로 검색: ({start_pt.x():.1f}, {start_pt.y():.1f}) -> ({goal_pt.x():.1f}, {goal_pt.y():.1f})")
-        print(f"   셀 좌표: ({sx}, {sy}) -> ({gx}, {gy})")
-        
-        # 경계 체크
-        if not (0 <= sx < W and 0 <= sy < H and 0 <= gx < W and 0 <= gy < H):
-            print(f"❌ 경계 밖 좌표: 시작({sx}, {sy}) 목적지({gx}, {gy}), 그리드 크기({W}, {H})")
-            return None
-        
-        # 시작점이나 목적지가 점유된 경우 가장 가까운 자유 셀로 이동
-        if occ[idx(sx, sy)]:
-            print(f"⚠️ 시작점 ({sx}, {sy})이 점유됨, 자유 셀 검색 중...")
-            free_start = self.find_nearest_free_cell_from_point(start_pt)
-            sx, sy = self.pt_to_cell(free_start)
-            print(f"   새로운 시작점: ({sx}, {sy})")
-            
-        if occ[idx(gx, gy)]:
-            print(f"⚠️ 목적지 ({gx}, {gy})이 점유됨, 자유 셀 검색 중...")
-            free_goal = self.find_nearest_free_cell_from_point(goal_pt)
-            gx, gy = self.pt_to_cell(free_goal)
-            print(f"   새로운 목적지: ({gx}, {gy})")
-        
-        # 여전히 점유된 경우 경로 찾기 불가
-        if occ[idx(sx, sy)] or occ[idx(gx, gy)]:
-            print(f"❌ 시작점 또는 목적지가 여전히 점유됨: 시작({sx}, {sy})={occ[idx(sx, sy)]}, 목적지({gx}, {gy})={occ[idx(gx, gy)]}")
+        if not (0 <= sx < W and 0 <= sy < H and 0 <= gx < W and 0 <= gy < H) or occ[idx(sx, sy)] or occ[idx(gx, gy)]:
             return None
         
         openh = [(abs(sx - gx) + abs(sy - gy), 0, (sx, sy))]
         came, g = {}, {(sx, sy): 0}
-        iterations = 0
-        max_iterations = 10000  # 무한 루프 방지
         
-        while openh and iterations < max_iterations:
-            iterations += 1
+        while openh:
             _, gc, (x, y) = heappop(openh)
             
             if (x, y) == (gx, gy):
@@ -1117,7 +904,6 @@ class ParkingLotUI(QWidget):
                     curr = came[curr]
                 path.append((sx, sy))
                 path.reverse()
-                print(f"✅ 경로 발견! {len(path)}개 셀, {iterations}회 반복")
                 return path
             
             for dx, dy, cst in [(1, 0, 1), (-1, 0, 1), (0, 1, 1), (0, -1, 1)]:
@@ -1132,11 +918,7 @@ class ParkingLotUI(QWidget):
                     g[(nx, ny)] = ng
                     came[(nx, ny)] = (x, y)
                     heappush(openh, (ng + abs(nx - gx) + abs(ny - gy), ng, (nx, ny)))
-        
-        if iterations >= max_iterations:
-            print(f"❌ 최대 반복 횟수 초과: {max_iterations}회")
-        else:
-            print(f"❌ 경로를 찾을 수 없음: {iterations}회 반복 후 종료")
+                    
         return None
 
     def simplify_cells(self, cells):
@@ -1150,26 +932,17 @@ class ParkingLotUI(QWidget):
 
     def draw_straight_path(self, pts):
         if len(pts) < 2: return
-        
-        # 웨이포인트들을 순서대로 직선으로 연결
         for i in range(len(pts) - 1):
-            start = pts[i]
-            end = pts[i + 1]
-            
-            # 글로우 효과
+            start, end = pts[i], pts[i + 1]
             for width, alpha in [(self.PATH_WIDTH + 12, 60), (self.PATH_WIDTH + 6, 100)]:
                 glow_pen = QPen(QColor(0,170,210,alpha), width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
                 self.scene.addLine(start.x(), start.y(), end.x(), end.y(), glow_pen).setParentItem(self.layer_path)
-            
-            # 메인 경로
             main_pen = QPen(QColor(0,200,255), self.PATH_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             self.scene.addLine(start.x(), start.y(), end.x(), end.y(), main_pen).setParentItem(self.layer_path)
-            
-            # 중앙 라인
             center_pen = QPen(QColor(255,255,255,150), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             self.scene.addLine(start.x(), start.y(), end.x(), end.y(), center_pen).setParentItem(self.layer_path)
 
-    def generate_hud_instructions(self, pts, is_exit_scenario=False):
+    def generate_hud_instructions(self, pts):
         if len(pts) < 2: return []
         instructions, total_dist = [], 0
         for i in range(len(pts) - 1):
@@ -1180,16 +953,8 @@ class ParkingLotUI(QWidget):
                 p3 = pts[i+2]
                 angle = (degrees(atan2(p3.y()-p2.y(),p3.x()-p2.x()))-degrees(atan2(p2.y()-p1.y(),p2.x()-p1.x()))+180)%360-180
                 direction = "좌회전" if angle>45 else ("우회전" if angle<-45 else "")
-                if direction: 
-                    if is_exit_scenario:
-                        direction = f"출차 {direction}"
-                    instructions.append((direction, total_dist)); total_dist = 0
-        
-        if is_exit_scenario:
-            instructions.append(("출차 완료", total_dist))
-        else:
-            instructions.append(("목적지 도착", total_dist))
-        return instructions
+                if direction: instructions.append((direction, total_dist)); total_dist = 0
+        instructions.append(("목적지 도착", total_dist)); return instructions
 
     def calculate_route_progress(self, car_pos):
         if not self.full_path_points or len(self.full_path_points)<2: return 0
@@ -1241,308 +1006,12 @@ class ParkingLotUI(QWidget):
         remaining_pts = self.full_path_points[self.current_path_segment_index+1:]
         path_for_hud = [car_pos] + remaining_pts
         if len(path_for_hud) < 2:
-            if self.is_exit_scenario:
-                self.hud.update_navigation_info([("출차 완료", 0)], current_speed=0, route_progress=100)
-            else:
-                self.hud.update_navigation_info([("목적지 도착", 0)], current_speed=0, route_progress=100)
+            self.hud.update_navigation_info([("목적지 도착", 0)], current_speed=0, route_progress=100)
             return
-        instructions = self.generate_hud_instructions(path_for_hud, self.is_exit_scenario)
+        instructions = self.generate_hud_instructions(path_for_hud)
         progress = self.calculate_route_progress(car_pos)
-        speed = self.calculate_realistic_speed(instructions, progress, car_pos)
+        speed = min(60, int(progress*0.6+10))
         self.hud.update_navigation_info(instructions, current_speed=speed, route_progress=progress)
-
-    def calculate_realistic_speed(self, instructions, progress, car_pos):
-        """현재 상황에 맞는 현실적인 속도 계산 (0-30km/h 범위)"""
-        if not instructions:
-            return 0
-        
-        direction, distance = instructions[0]
-        
-        # 기본 속도 설정
-        base_speed = 20  # 기본 20km/h
-        
-        # 거리에 따른 속도 조절
-        if distance <= 5:
-            # 목적지가 가까우면 감속 (5-15km/h)
-            speed = 5 + (distance / 5) * 10
-        elif distance <= 20:
-            # 중간 거리면 적당한 속도 (15-25km/h)
-            speed = 15 + (distance / 20) * 10
-        else:
-            # 먼 거리면 정상 속도 (20-30km/h)
-            speed = 20 + min(10, (distance - 20) / 50 * 10)
-        
-        # 방향에 따른 속도 조절
-        if "좌회전" in direction or "우회전" in direction:
-            # 회전 시 감속 (5-15km/h)
-            speed = min(speed, 15)
-        elif "목적지" in direction or "도착" in direction:
-            # 목적지 근처에서 감속 (5-15km/h)
-            speed = min(speed, 15)
-        elif "출차" in direction:
-            # 출차 시 조심스럽게 (10-20km/h)
-            speed = min(speed, 20)
-        
-        # 진행률에 따른 미세 조절
-        if progress < 20:
-            # 시작 구간에서는 조금 더 신중하게
-            speed *= 0.8
-        elif progress > 80:
-            # 마지막 구간에서는 더 조심스럽게
-            speed *= 0.7
-        
-        # 출차 시나리오에서는 더 조심스럽게
-        if self.is_exit_scenario:
-            speed *= 0.75
-        
-        # 최종 속도 범위 제한 (0-30km/h)
-        speed = max(0, min(30, int(speed)))
-        
-        return speed
-
-    def start_exit_scenario(self):
-        """출차 시나리오 시작 - 시계방향으로 출차 경로 생성"""
-        if not self.car.isVisible():
-            QMessageBox.warning(self, "출차 오류", "차량이 지도에 표시되지 않았습니다. 먼저 경로를 설정해주세요.")
-            return
-        
-        car_pos = self.car.pos()
-        parking_spot = self.detect_parking_spot(car_pos)
-        
-        if parking_spot is None:
-            QMessageBox.warning(self, "출차 오류", "현재 위치에서 주차 구역을 찾을 수 없습니다.")
-            return
-        
-        exit_waypoints = self.generate_exit_waypoints(parking_spot)
-        if not exit_waypoints:
-            QMessageBox.warning(self, "출차 오류", "출차 경로를 생성할 수 없습니다.")
-            return
-        
-        # 출차 시나리오 상태 설정
-        self.is_exit_scenario = True
-        
-        # 기존 경로 클리어
-        self.clear_path_layer()
-        
-        # 출차 경로 계산 및 표시
-        self.calculate_and_display_exit_route(exit_waypoints, parking_spot)
-        
-        QMessageBox.information(self, "출차 시나리오", f"주차 구역 {parking_spot}번에서 출차 경로를 시작합니다.\n입차 경로의 역순으로 안전하게 출차하세요.")
-
-    def detect_parking_spot(self, car_pos):
-        """차량 위치를 기반으로 주차 구역 번호 감지"""
-        x, y = car_pos.x(), car_pos.y()
-        
-        # 새로운 주차 구역별 좌표 범위 정의 (1~11번)
-        parking_spots = {
-            # 1~5번 주차구역 (상단 주차구역)
-            1: (0, 1600, 400, 400),      # 장애인 구역
-            2: (400, 1600, 300, 400),    # 일반 구역
-            3: (700, 1600, 300, 400),    # 일반 구역
-            4: (1000, 1600, 300, 400),   # 전기차 구역
-            5: (1300, 1600, 300, 400),   # 전기차 구역
-            
-            # 6~7번 주차구역 (우측 주차구역)
-            6: (1600, 1200, 400, 400),   # 장애인 구역
-            7: (1600, 800, 400, 400),     # 장애인 구역
-            
-            # 8~11번 주차구역 (하단 주차구역)
-            8: (1300, 400, 300, 400),    # 일반 구역
-            9: (1000, 400, 300, 400),     # 일반 구역
-            10: (700, 400, 300, 400),     # 전기차 구역
-            11: (400, 400, 300, 400),     # 전기차 구역
-        }
-        
-        for spot_num, (spot_x, spot_y, spot_w, spot_h) in parking_spots.items():
-            if spot_x <= x <= spot_x + spot_w and spot_y <= y <= spot_y + spot_h:
-                return spot_num
-        
-        return None
-
-    def generate_exit_waypoints(self, parking_spot):
-        """sender.py의 입차 로직을 역으로 사용하여 출차 웨이포인트 생성"""
-        # sender.py의 MANDATORY_WAYPOINT와 동일
-        MANDATORY_WAYPOINT = [200, 925]
-        
-        # sender.py의 주차구역별 waypoint 좌표와 동일
-        parking_waypoints = {
-            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
-            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
-            5: [1450, 1475],
-            # 주차구역 6-7 (우측, 위→아래)  
-            6: [1475, 1400], 7: [1475, 1000],
-            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
-            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
-        }
-        
-        current_waypoint = parking_waypoints.get(parking_spot)
-        if not current_waypoint:
-            return None
-        
-        # 출차 최종 목적지는 무조건 (200, 200)으로 설정
-        FINAL_DESTINATION = [200, 200]  # 최종 목적지 (입구)
-        exit_waypoints = []
-        
-        if parking_spot == 1:  # 1번: (200,1475) -> (200,925) -> (200,200)
-            exit_waypoints.append(MANDATORY_WAYPOINT)
-            exit_waypoints.append(FINAL_DESTINATION)
-        elif parking_spot in [2, 3, 4, 5]:  # 2~5번: 현재위치 -> (200, 1475) -> (200, 925) -> (200,200)
-            exit_waypoints.append([200, 1475])
-            exit_waypoints.append(MANDATORY_WAYPOINT)
-            exit_waypoints.append(FINAL_DESTINATION)
-        elif parking_spot == 6:  # 6번: (1475, 1400) -> (1475, 1475) -> (200, 1475) -> (200, 925) -> (200,200)
-            exit_waypoints.append([1475, 1475])
-            exit_waypoints.append([200, 1475])
-            exit_waypoints.append(MANDATORY_WAYPOINT)
-            exit_waypoints.append(FINAL_DESTINATION)
-        elif parking_spot == 7:  # 7번: (1475, 1000) -> (1475, 925) -> (200, 925) -> (200,200)
-            exit_waypoints.append([1475, 925])
-            exit_waypoints.append(MANDATORY_WAYPOINT)
-            exit_waypoints.append(FINAL_DESTINATION)
-        elif parking_spot in [8, 9, 10, 11]:  # 8~11번: 현재위치 -> (200, 925) -> (200,200)
-            exit_waypoints.append(MANDATORY_WAYPOINT)
-            exit_waypoints.append(FINAL_DESTINATION)
-        
-        print(f"🚗 출차 경로 생성 - 주차구역 {parking_spot}번")
-        print(f"   최종 목적지: {FINAL_DESTINATION}")
-        print(f"   경로 포인트: {exit_waypoints}")
-        
-        return exit_waypoints
-
-    def get_parking_spot_start_waypoint(self, parking_spot):
-        """주차구역별 시작 웨이포인트 반환 - sender.py의 좌표와 동일하게 설정"""
-        # sender.py의 주차구역별 waypoint 좌표와 동일
-        parking_waypoints = {
-            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
-            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
-            5: [1450, 1475],
-            # 주차구역 6-7 (우측, 위→아래)  
-            6: [1475, 1400], 7: [1475, 1000],
-            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
-            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
-        }
-        
-        if parking_spot in parking_waypoints:
-            return parking_waypoints[parking_spot]
-        
-        return None
-
-    def calculate_and_display_exit_route(self, exit_waypoints, parking_spot):
-        """출차 경로 계산 및 표시 - 각 주차구역 핀포인트부터 시작"""
-        # 주차구역별 핀포인트에서 시작
-        assigned_waypoint = self.get_parking_spot_start_waypoint(parking_spot)
-        if not assigned_waypoint:
-            QMessageBox.warning(self, "출차 경로 실패", "배정 웨이포인트를 찾을 수 없습니다.")
-            return
-        
-        start_point = QPointF(assigned_waypoint[0], assigned_waypoint[1])
-        
-        # 전체 경로 구성: 핀포인트 → 웨이포인트들 (직선 연결)
-        waypoints_qpoints = [QPointF(p[0], p[1]) for p in exit_waypoints]
-        self.full_path_points = [start_point] + waypoints_qpoints
-        
-        print(f"✅ 출차 경로: {len(self.full_path_points)}개 포인트")
-        for i, point in enumerate(self.full_path_points):
-            print(f"  {i+1}. ({point.x():.1f}, {point.y():.1f})")
-        
-        # 기존 경로 클리어 후 출차 경로 그리기
-        self.clear_path_layer()
-        self.draw_exit_path(self.full_path_points)
-        
-        # 차량은 현재 위치에 그대로 두고 경로만 표시
-        self.car.show()
-        
-        self.current_path_segment_index = 0
-        self.update_hud_from_car_position(self.car.pos())
-
-    def draw_exit_path(self, pts):
-        """출차 경로 그리기 (시계방향 표시)"""
-        if len(pts) < 2: 
-            print(f"출차 경로 포인트가 부족합니다: {len(pts)}개")
-            return
-        
-        print(f"출차 경로 그리기 시작: {len(pts)}개 포인트")
-        
-        # 시계방향 화살표를 포함한 경로 그리기
-        for i in range(len(pts) - 1):
-            start, end = pts[i], pts[i + 1]
-            print(f"경로 구간 {i+1}: ({start.x():.0f}, {start.y():.0f}) -> ({end.x():.0f}, {end.y():.0f})")
-            
-            # 글로우 효과
-            for width, alpha in [(self.PATH_WIDTH + 12, 60), (self.PATH_WIDTH + 6, 100)]:
-                glow_pen = QPen(QColor(255, 165, 0, alpha), width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)  # 오렌지색 글로우
-                line_item = self.scene.addLine(start.x(), start.y(), end.x(), end.y(), glow_pen)
-                line_item.setParentItem(self.layer_path)
-            
-            # 메인 경로 (오렌지색)
-            main_pen = QPen(QColor(255, 140, 0), self.PATH_WIDTH, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-            line_item = self.scene.addLine(start.x(), start.y(), end.x(), end.y(), main_pen)
-            line_item.setParentItem(self.layer_path)
-            
-            # 중앙 라인 (흰색)
-            center_pen = QPen(QColor(255, 255, 255, 150), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-            line_item = self.scene.addLine(start.x(), start.y(), end.x(), end.y(), center_pen)
-            line_item.setParentItem(self.layer_path)
-            
-            # 시계방향 화살표 그리기
-            self.draw_clockwise_arrow(start, end)
-        
-        print("출차 경로 그리기 완료")
-
-    def draw_clockwise_arrow(self, start, end):
-        """시계방향 화살표 그리기"""
-        # 선분의 중점 계산
-        mid_x = (start.x() + end.x()) / 2
-        mid_y = (start.y() + end.y()) / 2
-        
-        # 선분의 방향 벡터 계산
-        dx = end.x() - start.x()
-        dy = end.y() - start.y()
-        length = sqrt(dx*dx + dy*dy)
-        
-        if length == 0:
-            return
-        
-        # 정규화된 방향 벡터
-        nx = dx / length
-        ny = dy / length
-        
-        # 시계방향 화살표 크기
-        arrow_size = 20
-        
-        # 화살표의 세 점 계산 (시계방향)
-        # 화살표 머리 부분
-        arrow_head_x = mid_x + nx * arrow_size
-        arrow_head_y = mid_y + ny * arrow_size
-        
-        # 화살표 왼쪽 날개 (시계방향으로 30도 회전)
-        angle = radians(30)
-        cos_angle = cos(angle)
-        sin_angle = sin(angle)
-        
-        left_wing_x = mid_x + (nx * cos_angle - ny * sin_angle) * arrow_size * 0.6
-        left_wing_y = mid_y + (nx * sin_angle + ny * cos_angle) * arrow_size * 0.6
-        
-        # 화살표 오른쪽 날개 (시계방향으로 -30도 회전)
-        right_wing_x = mid_x + (nx * cos_angle + ny * sin_angle) * arrow_size * 0.6
-        right_wing_y = mid_y + (-nx * sin_angle + ny * cos_angle) * arrow_size * 0.6
-        
-        # 화살표 그리기
-        arrow_points = [
-            QPointF(arrow_head_x, arrow_head_y),
-            QPointF(left_wing_x, left_wing_y),
-            QPointF(right_wing_x, right_wing_y)
-        ]
-        
-        # 화살표 폴리곤 생성
-        arrow_polygon = QPolygonF(arrow_points)
-        
-        # 화살표 그리기 (오렌지색)
-        arrow_item = QGraphicsPolygonItem(arrow_polygon)
-        arrow_item.setBrush(QBrush(QColor(255, 140, 0)))
-        arrow_item.setPen(QPen(QColor(255, 255, 255), 2))
-        arrow_item.setParentItem(self.layer_path)
-        self.scene.addItem(arrow_item)
 
 if __name__ == "__main__":
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)

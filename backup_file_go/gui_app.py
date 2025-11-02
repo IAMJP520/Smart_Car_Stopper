@@ -21,26 +21,25 @@ from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProp
 def get_destination_number(destination_name):
     """목적지 이름을 숫자로 변환 (RSSI.c 형식에 맞춤)"""
     destination_mapping = {
-        "미용실": 0,
-        "마트": 1,
-        "식당": 2
+        "백화점 본관 입구": 0,
+        "영화관 입구": 1,
+        "문화시설 입구": 2
     }
-    return destination_mapping.get(destination_name, 0)  # 기본값은 0 (미용실)
+    return destination_mapping.get(destination_name, 0)  # 기본값은 0 (백화점 본관 입구)
 
 def get_destination_name(destination_number):
     """숫자를 목적지 이름으로 변환"""
     number_mapping = {
-        0: "미용실",
-        1: "마트", 
-        2: "식당"
+        0: "백화점 본관 입구",
+        1: "영화관 입구", 
+        2: "문화시설 입구"
     }
-    return number_mapping.get(destination_number, "미용실")  # 기본값은 미용실
+    return number_mapping.get(destination_number, "백화점 본관 입구")  # 기본값은 백화점 본관 입구
 
 # ===================================================================
 # Wi-Fi 통신 설정
 # ===================================================================
 WIFI_CONFIG = {
-    'target_ip': '192.168.204.27',
     'port': 7777
 }
 
@@ -70,7 +69,7 @@ class WifiSender(QObject): # 👈 QObject 상속
         error_message = None
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(3)
+                s.settimeout(5)
                 print(f"연결 시도 중... -> {self.host}:{self.port}")
                 s.connect((self.host, self.port))
                 data['timestamp'] = datetime.datetime.now().isoformat()
@@ -243,7 +242,7 @@ class AnimatedButton(QPushButton):
                     stop:0 rgba(0, 44, 95, 0.8), stop:1 rgba(0, 127, 163, 0.8));
                 color: white; border: 2px solid rgba(0, 170, 210, 0.5);
                 border-radius: 25px; font-size: {FONT_SIZES['button']}pt;
-                font-weight: bold; padding: 15px 30px; backdrop-filter: blur(10px);
+                font-weight: bold; padding: 15px 30px;
             }}
             QPushButton:disabled {{
                 background: rgba(40, 50, 70, 0.8);
@@ -257,7 +256,7 @@ class AnimatedButton(QPushButton):
                     stop:0 rgba(0, 170, 210, 0.9), stop:1 rgba(0, 127, 163, 0.9));
                 color: white; border: 2px solid rgba(0, 170, 210, 0.8);
                 border-radius: 25px; font-size: {FONT_SIZES['button']}pt;
-                font-weight: bold; padding: 15px 30px; backdrop-filter: blur(10px);
+                font-weight: bold; padding: 15px 30px;
             }}
         """
         self.setStyleSheet(self.default_style)
@@ -468,9 +467,9 @@ class DestinationSelectionScreen(BaseScreen):
         destination_buttons_layout = QVBoxLayout()
         destination_buttons_layout.setSpacing(20)
         
-        self.beauty_btn = AnimatedButton("💇 미용실")
-        self.mart_btn = AnimatedButton("🛒 마트")
-        self.restaurant_btn = AnimatedButton("🍽️ 식당")
+        self.beauty_btn = AnimatedButton("🏬 백화점 본관 입구")
+        self.mart_btn = AnimatedButton("🎬 영화관 입구")
+        self.restaurant_btn = AnimatedButton("🎨 문화시설 입구")
         
         self.destination_btn_group.addButton(self.beauty_btn)
         self.destination_btn_group.addButton(self.mart_btn)
@@ -480,9 +479,9 @@ class DestinationSelectionScreen(BaseScreen):
         destination_buttons_layout.addWidget(self.mart_btn)
         destination_buttons_layout.addWidget(self.restaurant_btn)
 
-        self.beauty_btn.clicked.connect(lambda: self.select_destination('미용실'))
-        self.mart_btn.clicked.connect(lambda: self.select_destination('마트'))
-        self.restaurant_btn.clicked.connect(lambda: self.select_destination('식당'))
+        self.beauty_btn.clicked.connect(lambda: self.select_destination('백화점 본관 입구'))
+        self.mart_btn.clicked.connect(lambda: self.select_destination('영화관 입구'))
+        self.restaurant_btn.clicked.connect(lambda: self.select_destination('문화시설 입구'))
 
         self.content_layout.addStretch(1)
         self.content_layout.addWidget(title)
@@ -612,9 +611,17 @@ class RegularVehicleResult(BaseScreen):
 # ❗ [수정] 메인 윈도우 (시그널-슬롯 연결)
 # ===================================================================
 class HyundaiStyleUI(QWidget):
-    def __init__(self):
+    def __init__(self, vehicle_ip=None):
         super().__init__()
-        self.wifi_sender = WifiSender(WIFI_CONFIG['target_ip'], WIFI_CONFIG['port'])
+        # main_launcher_sy.py에서 전달된 vehicle_ip를 우선 사용, 없으면 로컬 테스트용 기본값
+        if not vehicle_ip:
+            print("⚠️ 경고: ESP32 IP 주소 없이 HyundaiStyleUI가 생성되었습니다. (단독 테스트용)")
+            vehicle_ip = '127.0.0.1'
+        else:
+            print(f"🎯 ESP32 IP 주소 수신: {vehicle_ip}")
+
+        # 전달받은 IP로 WifiSender 초기화 (포트는 기존 설정 유지)
+        self.wifi_sender = WifiSender(vehicle_ip, WIFI_CONFIG['port'])
         
         # 👈 [추가] WifiSender의 신호를 메인 윈도우의 슬롯(메서드)에 연결
         self.wifi_sender.send_finished.connect(self.launch_parking_ui)
@@ -665,7 +672,7 @@ class HyundaiStyleUI(QWidget):
     def launch_parking_ui(self):
         """[슬롯] `send_finished` 신호를 받으면 호출됩니다."""
         try:
-            script_name = 'UWB_PARKING_UI_ver2.py'
+            script_name = 'test_tts_kor_2_backup.py'
             print(f"\n✅ 전송 성공! 다음 UI 실행 시도: {script_name}")
             subprocess.Popen([sys.executable, script_name])
             QApplication.quit()
