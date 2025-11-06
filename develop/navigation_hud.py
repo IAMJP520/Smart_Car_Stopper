@@ -82,7 +82,7 @@ from PyQt5.QtCore import (
     QPropertyAnimation, QPointF, QRectF, QThread
 )
 
-ESP32_CAM_URL = "http://192.168.0.29:81/stream"
+ESP32_CAM_URL = "http://10.240.16.167:81/stream"
 
 # ===================================================================
 # 개선된 현대차 스타일 컬러 팔레트 - Smart_Parking_GUI.py와 동일

@@ -338,7 +338,7 @@ class ParkingLotUI(QWidget):
         self.voice_guide = VoiceGuide()
         
         # 재할당 서버 설정
-        self.reassign_server_host = '192.168.0.111'  # 팀원 서버 주소
+        self.reassign_server_host = '10.240.16.87'  # 팀원 서버 주소
         self.reassign_server_port = 9999  # 기본 포트, 필요시 변경 가능
         self.waiting_for_reassignment = False  # 재할당 대기 플래그
         self.is_reassigned_route = False  # 재할당된 경로인지 여부
