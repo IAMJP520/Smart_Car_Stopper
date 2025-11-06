@@ -1,0 +1,1588 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+HUD 네비게이션 화면 (카메라 배경 포함)
+ESP32 카메라 스트림을 배경으로 하고 그 위에 HUD 오버레이
+ZeroMQ로 메인 컨트롤러로부터 실시간 데이터 수신하여
+경로 안내, 거리 정보, 음성 안내를 제공
+"""
+
+import sys
+import json
+import threading
+import tempfile
+import os
+import time
+from datetime import datetime
+from typing import Optional, Dict, Any
+
+# OpenCV Qt 플러그인 충돌 방지 (OpenCV import 전에 실행)
+try:
+    system_qt_paths = [
+        '/usr/lib/x86_64-linux-gnu/qt5/plugins',
+        '/usr/lib/qt5/plugins',
+        '/usr/lib/qt/plugins'
+    ]
+    qt_plugin_path = None
+    for path in system_qt_paths:
+        if os.path.exists(path) and os.path.exists(os.path.join(path, 'platforms')):
+            qt_plugin_path = path
+            break
+    if not qt_plugin_path:
+        try:
+            import PyQt5
+            pyqt5_path = os.path.dirname(PyQt5.__file__)
+            possible_paths = [
+                os.path.join(pyqt5_path, 'Qt5', 'plugins'),
+                os.path.join(os.path.dirname(pyqt5_path), 'PyQt5', 'Qt5', 'plugins')
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    qt_plugin_path = path
+                    break
+        except:
+            pass
+    if qt_plugin_path:
+        os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = qt_plugin_path
+except Exception as e:
+    pass
+
+os.environ['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'
+os.environ['OPENCV_VIDEOIO_DEBUG'] = '0'
+
+import cv2
+
+# OpenCV가 Qt 플러그인 경로를 덮어쓴 경우 재설정
+if 'QT_QPA_PLATFORM_PLUGIN_PATH' in os.environ:
+    current_path = os.environ['QT_QPA_PLATFORM_PLUGIN_PATH']
+    if 'cv2' in current_path or 'opencv' in current_path.lower():
+        system_qt_paths_check = [
+            '/usr/lib/x86_64-linux-gnu/qt5/plugins',
+            '/usr/lib/qt5/plugins',
+            '/usr/lib/qt/plugins'
+        ]
+        for path in system_qt_paths_check:
+            if os.path.exists(path) and os.path.exists(os.path.join(path, 'platforms')):
+                os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = path
+                break
+
+import zmq
+import pygame
+from gtts import gTTS
+
+from PyQt5.QtWidgets import (
+    QApplication, QFrame, QPushButton, QWidget, QSizePolicy, QLabel
+)
+from PyQt5.QtGui import (
+    QPainter, QColor, QBrush, QPen, QFont, QPolygonF,
+    QLinearGradient, QRadialGradient, QFontMetrics, QImage, QPixmap
+)
+from PyQt5.QtCore import (
+    Qt, QTimer, pyqtSignal, QObject, pyqtProperty, QEasingCurve,
+    QPropertyAnimation, QPointF, QRectF, QThread
+)
+
+ESP32_CAM_URL = "http://192.168.0.29:81/stream"
+
+# ===================================================================
+# 개선된 현대차 스타일 컬러 팔레트 - Smart_Parking_GUI.py와 동일
+# ===================================================================
+HYUNDAI_COLORS = {
+    'primary': '#1a1a1a',        # 진한 차콜 그레이
+    'secondary': "#2d2d2d",      # 미디엄 그레이  
+    'accent': '#4a9eff',         # 부드러운 블루
+    'success': '#00d084',        # 민트 그린
+    'warning': '#ffa726',        # 소프트 오렌지
+    'danger': '#ef5350',         # 소프트 레드
+    'background': '#0f0f0f',     # 더 깊은 블랙
+    'surface': '#1e1e1e',        # 다크 서페이스
+    'text_primary': '#ffffff',   # 순백
+    'text_secondary': '#9e9e9e', # 쿨 그레이
+    'glass': 'rgba(255, 255, 255, 0.08)',
+    'blue_soft': '#6bb6ff',      # 소프트 블루
+    'blue_muted': '#4285f4',     # 뮤트 블루
+    'white_soft': '#f5f5f5',     # 소프트 화이트
+    'gray_light': '#757575',     # 라이트 그레이
+    'gray_medium': '#424242'     # 미디엄 그레이
+}
+
+FONT_SIZES = {
+    'hud_distance': 84, 'hud_direction': 24, 'hud_speed': 56, 'hud_speed_unit': 20,
+    'hud_progress': 28, 'hud_next_label': 20, 'hud_next_direction': 28,
+    'map_label': 20, 'map_io_label': 24, 'map_waypoint_label': 24,
+    'controls_title': 32, 'controls_info': 24, 'controls_button': 32, 'msgbox_button': 20
+}
+
+# ===================================================================
+# TTS 음성 안내 모듈 (Smart_Parking_GUI.py와 동일)
+# ===================================================================
+class VoiceGuide:
+    """음성 경로 안내를 담당하는 클래스 (Google TTS 사용)"""
+    
+    def __init__(self):
+        self.last_instruction = None
+        self.temp_files = []
+        self.init_tts()
+    
+    def init_tts(self):
+        """TTS 엔진 초기화 (Google TTS 사용)"""
+        try:
+            pygame.mixer.init()
+            print("🔊 Google TTS 엔진 초기화 완료")
+        except Exception as e:
+            print(f"❌ TTS 초기화 실패: {e}")
+            self.engine = None
+    
+    def speak_instruction(self, instruction_text):
+        """음성 안내 재생"""
+        if not instruction_text:
+            return
+        
+        if self.last_instruction == instruction_text:
+            return
+        
+        self.last_instruction = instruction_text
+        
+        try:
+            threading.Thread(
+                target=self._speak_thread,
+                args=(instruction_text,),
+                daemon=True,
+                name="VoiceGuide"
+            ).start()
+        except Exception as e:
+            print(f"❌ 음성 안내 재생 실패: {e}")
+    
+    def _speak_thread(self, text):
+        """음성 재생 스레드 (Google TTS 사용)"""
+        try:
+            tts = gTTS(text=text, lang='ko', slow=False)
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+                temp_path = temp_file.name
+                tts.save(temp_path)
+                self.temp_files.append(temp_path)
+            
+            pygame.mixer.music.load(temp_path)
+            pygame.mixer.music.play()
+            
+            while pygame.mixer.music.get_busy():
+                pygame.time.wait(100)
+            
+            try:
+                os.unlink(temp_path)
+                if temp_path in self.temp_files:
+                    self.temp_files.remove(temp_path)
+            except:
+                pass
+            
+            print(f"🔊 음성 안내: {text}")
+            
+        except Exception as e:
+            print(f"❌ 음성 재생 중 오류: {e}")
+    
+    def stop(self):
+        """TTS 엔진 정리"""
+        try:
+            pygame.mixer.quit()
+            
+            for temp_file in self.temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except:
+                    pass
+            self.temp_files.clear()
+            
+            print("🔇 TTS 엔진 정리 완료")
+        except Exception as e:
+            print(f"❌ TTS 정리 중 오류: {e}")
+
+# ===================================================================
+# ZeroMQ 데이터 수신기 클래스
+# ===================================================================
+class HUDDataReceiver(QObject):
+    """HUD용 ZeroMQ 데이터 수신기"""
+    
+    position_received = pyqtSignal(dict)
+    navigation_received = pyqtSignal(dict)
+    waypoint_received = pyqtSignal(dict)
+    payment_received = pyqtSignal(dict)  # 정산 금액 수신 시그널 추가
+    
+    def __init__(self, zmq_host='localhost', zmq_port=5555):
+        super().__init__()
+        self.zmq_host = zmq_host
+        self.zmq_port = zmq_port
+        self.context = None
+        self.socket = None
+        self.running = False
+        
+    def start(self):
+        """ZeroMQ 구독 시작"""
+        try:
+            self.context = zmq.Context()
+            self.socket = self.context.socket(zmq.SUB)
+            self.socket.connect(f"tcp://{self.zmq_host}:{self.zmq_port}")
+            
+            self.socket.setsockopt_string(zmq.SUBSCRIBE, "vehicle_position")
+            self.socket.setsockopt_string(zmq.SUBSCRIBE, "navigation_instruction")
+            self.socket.setsockopt_string(zmq.SUBSCRIBE, "waypoint_data")
+            self.socket.setsockopt_string(zmq.SUBSCRIBE, "payment_data")  # 정산 데이터 구독 추가
+            
+            self.socket.setsockopt(zmq.RCVTIMEO, 100)
+            
+            self.running = True
+            print(f"✅ HUD ZeroMQ 구독 시작됨 - {self.zmq_host}:{self.zmq_port}")
+            
+            threading.Thread(target=self._receive_loop, daemon=True, name="HUDZMQReceiver").start()
+            return True
+            
+        except Exception as e:
+            print(f"❌ HUD ZeroMQ 구독 시작 실패: {e}")
+            return False
+    
+    def _receive_loop(self):
+        """데이터 수신 루프"""
+        while self.running:
+            try:
+                message = self.socket.recv_string(zmq.NOBLOCK)
+                self._process_message(message)
+                
+            except zmq.Again:
+                continue
+            except Exception as e:
+                if self.running:
+                    print(f"❌ HUD ZeroMQ 메시지 수신 오류: {e}")
+                break
+    
+    def _process_message(self, message: str):
+        """수신된 메시지 처리"""
+        try:
+            parts = message.split(' ', 1)
+            if len(parts) != 2:
+                return
+                
+            topic, json_data = parts
+            data = json.loads(json_data)
+            
+            if topic == "vehicle_position":
+                self.position_received.emit(data)
+            elif topic == "navigation_instruction":
+                self.navigation_received.emit(data)
+            elif topic == "waypoint_data":
+                self.waypoint_received.emit(data)
+            elif topic == "payment_data":
+                self.payment_received.emit(data)  # 정산 데이터 처리
+                
+        except Exception as e:
+            print(f"❌ HUD 메시지 처리 오류: {e}")
+    
+    def stop(self):
+        """ZeroMQ 구독 종료"""
+        self.running = False
+        if self.socket:
+            self.socket.close()
+        if self.context:
+            self.context.term()
+        print("🔄 HUD ZeroMQ 구독 종료됨")
+
+# ===================================================================
+# ESP32 카메라 비디오 스트림 스레드
+# ===================================================================
+class VideoThread(QThread):
+    """ESP32 카메라 스트림 수신 스레드"""
+    change_pixmap_signal = pyqtSignal(QImage)
+    connection_status_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
+    
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+        self._run_flag = True
+        self.cap = None
+        self.reconnect_delay = 2.0
+        self.max_reconnect_attempts = 10
+        self.reconnect_count = 0
+        self.frame_timeout = 5.0
+        self.last_frame_time = None
+        self.fps_target = 30
+        self.frame_interval = 1.0 / self.fps_target
+        self.last_frame_received = time.time()
+        
+    def _initialize_capture(self):
+        """비디오 캡처 객체 초기화"""
+        try:
+            if self.cap:
+                self.cap.release()
+            
+            self.cap = cv2.VideoCapture(self.url)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            
+            if self.cap.isOpened():
+                self.connection_status_signal.emit("연결됨")
+                self.reconnect_count = 0
+                print(f"✅ ESP32 카메라 연결 성공: {self.url}")
+                return True
+            else:
+                self.connection_status_signal.emit("연결 실패")
+                print(f"❌ ESP32 카메라 연결 실패: {self.url}")
+                return False
+                
+        except Exception as e:
+            self.connection_status_signal.emit("연결 오류")
+            self.error_signal.emit(f"초기화 오류: {str(e)}")
+            print(f"❌ 비디오 캡처 초기화 오류: {e}")
+            return False
+    
+    def run(self):
+        """메인 스레드 루프"""
+        while self._run_flag:
+            if self.cap is None or not self.cap.isOpened():
+                if not self._try_reconnect():
+                    self.msleep(int(self.reconnect_delay * 1000))
+                    continue
+            
+            try:
+                ret, frame = None, None
+                for _ in range(2):
+                    temp_ret, temp_frame = self.cap.read()
+                    if temp_ret and temp_frame is not None:
+                        ret, frame = temp_ret, temp_frame
+                    else:
+                        break
+                
+                if ret and frame is not None:
+                    self.last_frame_time = time.time()
+                    self.last_frame_received = time.time()
+                    self.reconnect_count = 0
+                    
+                    try:
+                        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        h, w, ch = rgb_image.shape
+                        bytes_per_line = ch * w
+                        qt_image = QImage(rgb_image.copy(), w, h, bytes_per_line, QImage.Format_RGB888)
+                        self.change_pixmap_signal.emit(qt_image)
+                    except Exception as e:
+                        print(f"⚠️ 이미지 변환 오류: {e}")
+                        self.msleep(10)
+                else:
+                    self._handle_frame_read_error()
+                    
+            except Exception as e:
+                print(f"❌ 프레임 읽기 오류: {e}")
+                self.error_signal.emit(f"프레임 읽기 오류: {str(e)}")
+                self.cap = None
+                self.msleep(int(self.reconnect_delay * 1000))
+            
+            current_time = time.time()
+            elapsed = current_time - self.last_frame_received if self.last_frame_received else 0
+            sleep_time = max(0, (self.frame_interval - elapsed) * 1000)
+            if sleep_time > 0:
+                self.msleep(int(sleep_time))
+            self.last_frame_received = time.time()
+        
+        self._cleanup()
+    
+    def _try_reconnect(self):
+        """재연결 시도"""
+        if self.reconnect_count >= self.max_reconnect_attempts:
+            self.connection_status_signal.emit("재연결 실패")
+            self.error_signal.emit(f"최대 재연결 시도 횟수({self.max_reconnect_attempts}) 초과")
+            print(f"❌ 최대 재연결 시도 횟수 초과: {self.max_reconnect_attempts}")
+            return False
+        
+        self.reconnect_count += 1
+        self.connection_status_signal.emit(f"재연결 시도 중... ({self.reconnect_count}/{self.max_reconnect_attempts})")
+        print(f"🔄 재연결 시도 {self.reconnect_count}/{self.max_reconnect_attempts}...")
+        return self._initialize_capture()
+    
+    def _handle_frame_read_error(self):
+        """프레임 읽기 오류 처리"""
+        if self.last_frame_time:
+            time_since_last_frame = time.time() - self.last_frame_time
+            if time_since_last_frame > self.frame_timeout:
+                print(f"⚠️ 프레임 수신 타임아웃 ({time_since_last_frame:.1f}초)")
+                self.cap = None
+                return
+        self.msleep(100)
+    
+    def _cleanup(self):
+        """리소스 정리"""
+        try:
+            if self.cap:
+                self.cap.release()
+                self.cap = None
+            print("🧹 비디오 캡처 리소스 정리 완료")
+        except Exception as e:
+            print(f"⚠️ 정리 중 오류: {e}")
+    
+    def stop(self):
+        """스레드 종료"""
+        self._run_flag = False
+        self.wait()
+    
+    def update_url(self, new_url):
+        """URL 업데이트"""
+        self.url = new_url
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+        print(f"🔄 URL 업데이트: {new_url}")
+
+# ===================================================================
+# 애니메이션 HUD 위젯: Smart_Parking_GUI.py의 PremiumHudWidget 스타일
+# ===================================================================
+class PremiumHudWidget(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.NoFrame)
+        # 최소 크기 설정 제거 (부모 크기에 맞춤)
+        self.setMinimumSize(100, 100)  # 최소 크기만 설정
+        # 창 크기에 맞춰 확장되도록 설정
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # 배경을 투명하게 설정 (카메라 화면이 보이도록)
+        self.setStyleSheet(f"""
+            PremiumHudWidget {{
+                background: transparent;
+                border: none;
+            }}
+        """)
+        # 투명 배경 설정
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        # 마우스 이벤트를 뒤로 전달 (카메라 영역 클릭 가능하도록)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        self.current_direction = "경로 설정 대기"
+        self.current_distance = 0.0
+        self.next_direction = ""
+        self.speed = 0
+        self.progress = 0
+        self.animation_timer = QTimer(self)
+        self.animation_timer.timeout.connect(self.update_animation)
+        self.animation_timer.start(50)
+        self.rotation_angle = 0
+        self.pulse_scale = 1.0
+        self.pulse_growing = True
+        self.glow_opacity = 0.3
+        self.glow_increasing = True
+        import random
+        self.particle_positions = []
+        self.init_particles()
+        self.direction_transition = 0.0
+        self.target_direction = "직진"
+        self.previous_direction = "직진"
+        
+        self.voice_guide = VoiceGuide()
+        
+        # 출차 시작 버튼 (우측 하단, 작게)
+        # Smart_Parking_GUI.py 스타일 참고: 작은 크기 (350x40 -> 더 작게 250x35)
+        self.exit_scenario_button = QPushButton("출차 시작", self)
+        self.exit_scenario_button.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {HYUNDAI_COLORS['accent']}, 
+                    stop:1 {HYUNDAI_COLORS['blue_muted']});
+                color: {HYUNDAI_COLORS['text_primary']};
+                border: 2px solid {HYUNDAI_COLORS['blue_soft']};
+                border-radius: 18px;
+                font-size: 14px;
+                font-weight: bold;
+                font-family: 'Malgun Gothic';
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {HYUNDAI_COLORS['blue_soft']}, 
+                    stop:1 {HYUNDAI_COLORS['accent']});
+                border: 2px solid {HYUNDAI_COLORS['text_primary']};
+            }}
+            QPushButton:pressed {{
+                background: {HYUNDAI_COLORS['blue_muted']};
+                border: 2px solid {HYUNDAI_COLORS['warning']};
+            }}
+        """)
+        self.exit_scenario_button.clicked.connect(self.start_exit_scenario)
+
+    def init_particles(self):
+        import random
+        self.particle_positions = []
+        for _ in range(8):
+            # 창 크기에 맞춰 동적으로 파티클 범위 설정
+            self.particle_positions.append({
+                'x': random.randint(0, 900), 'y': random.randint(0, 1100),
+                'speed': random.uniform(0.3, 1.0), 'size': random.randint(2, 6),
+                'opacity': random.uniform(0.05, 0.15)
+            })
+    
+    def resizeEvent(self, event):
+        """창 크기 변경 시 파티클 범위도 업데이트 및 버튼 위치 조정"""
+        super().resizeEvent(event)
+        import random
+        width = self.width()
+        height = self.height()
+        
+        # 파티클 범위 업데이트
+        for particle in self.particle_positions:
+            if particle['x'] > width:
+                particle['x'] = random.randint(0, width) if width > 0 else 900
+            if particle['y'] > height:
+                particle['y'] = random.randint(0, height) if height > 0 else 1100
+        
+        # 출차 버튼 위치: 우측 하단 (여유 공간 20px)
+        button_width = 250
+        button_height = 35
+        button_x = width - button_width - 20
+        button_y = height - button_height - 20
+        self.exit_scenario_button.setGeometry(button_x, button_y, button_width, button_height)
+
+    def update_animation(self):
+        self.rotation_angle = (self.rotation_angle + 1) % 360
+        if self.pulse_growing:
+            self.pulse_scale += 0.01
+            if self.pulse_scale >= 1.05: self.pulse_growing = False
+        else:
+            self.pulse_scale -= 0.01
+            if self.pulse_scale <= 1.0: self.pulse_growing = True
+        if self.glow_increasing:
+            self.glow_opacity += 0.02
+            if self.glow_opacity >= 0.4: self.glow_increasing = False
+        else:
+            self.glow_opacity -= 0.02
+            if self.glow_opacity <= 0.2: self.glow_increasing = True
+        for particle in self.particle_positions:
+            particle['y'] -= particle['speed']
+            if particle['y'] < 0:
+                import random
+                width = self.width() if self.width() > 0 else 900
+                height = self.height() if self.height() > 0 else 1100
+                particle['y'] = height
+                particle['x'] = random.randint(0, width)
+        if self.direction_transition < 1.0:
+            self.direction_transition = min(1.0, self.direction_transition + 0.1)
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        rect, center_x = self.rect(), self.rect().width() // 2
+        height = rect.height()
+        
+        # 창 크기에 맞춰 동적으로 배치 (화면 하단 절반에 배치, 크기 반으로 축소)
+        self.draw_background_effects(painter, rect)
+        
+        # 전체 요소 크기 조정 (0.6 스케일 = 원래 크기의 60%, 화면 하단 절반에 배치)
+        painter.save()
+        painter.scale(0.6, 0.6)
+        # 스케일 적용 후 좌표 계산 (0.6 스케일이므로 약 1.67배로 확대)
+        center_x_scaled = center_x / 0.6
+        height_scaled = height / 0.6
+        
+        # 화면 하단 절반 영역에 배치 (화면 높이의 절반 지점부터 하단까지)
+        half_height = height_scaled / 2
+        bottom_margin = height_scaled / 6  # 하단 여유 공간 (화면의 1/6)
+        
+        # 속도 게이지: 화면 하단 절반 영역 내에서 하단 근처에 배치
+        # 화면 절반 지점(half_height) 아래 영역 내에서 하단 여유 공간 확보
+        speed_y_scaled = height_scaled - bottom_margin - 80  # 하단에서 위로 280px
+        
+        # 화면 절반 아래 영역 내에 배치되도록 보장
+        if speed_y_scaled < half_height:
+            # 요소가 너무 위에 있으면 하단 절반 영역 내로 조정
+            speed_y_scaled = half_height + (height_scaled - half_height - bottom_margin - 80)
+        
+        self.draw_speed_gauge(painter, center_x_scaled, speed_y_scaled)
+        
+        # 거리 패널: 속도 게이지 위에 배치 (게이지 상단에서 위로 230px)
+        distance_y_scaled = speed_y_scaled - 230
+        self.draw_distance_panel(painter, center_x_scaled, distance_y_scaled)
+        
+        # 방향 표시: 거리 패널 위에 배치 (패널 상단에서 위로 320px)
+        direction_y_scaled = distance_y_scaled - 320
+        self.draw_3d_direction_display(painter, center_x_scaled, direction_y_scaled)
+        
+        # 다음 안내 카드: 속도 게이지 아래에 배치 (화면 밖일 수 있음)
+        next_y_scaled = speed_y_scaled + 200
+        self.draw_next_instruction_card(painter, center_x_scaled, next_y_scaled)
+        
+        painter.restore()
+        
+        self.draw_decorative_elements(painter, rect)
+
+    def draw_background_effects(self, painter, rect):
+        painter.save()
+        for particle in self.particle_positions:
+            # 파티클이 화면 내에 있는지 확인
+            if 0 <= particle['x'] <= rect.width() and 0 <= particle['y'] <= rect.height():
+                color = QColor(HYUNDAI_COLORS['blue_soft'])
+                color.setAlphaF(particle['opacity'])
+                painter.setBrush(QBrush(color))
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(QPointF(particle['x'], particle['y']), particle['size'], particle['size'])
+        painter.restore()
+
+    def draw_3d_direction_display(self, painter, center_x, y):
+        painter.save()
+        painter.translate(center_x, y)
+        
+        # 배경 원형 모두 제거 - 화살표만 표시
+        # 전체 스케일이 0.6이므로 화살표를 2배로 키우려면 약 3.33배 적용
+        painter.scale(self.pulse_scale * 3.33, self.pulse_scale * 3.33)
+        
+        self.draw_3d_direction_icon(painter)
+        
+        # save/restore가 자동으로 scale을 되돌려줌
+        painter.restore()
+
+    def draw_3d_direction_icon(self, painter):
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        
+        # 검정 배경(그림자) 제거 - 화살표만 그리기
+        action = None
+
+        if "좌회전" in self.current_direction:
+            action = self.draw_3d_left_arrow
+        elif "우회전" in self.current_direction:
+            action = self.draw_3d_right_arrow
+        elif "목적지" in self.current_direction:
+            action = self.draw_3d_destination_icon
+        elif "출차 완료" in self.current_direction:
+            action = self.draw_3d_exit_complete_icon
+
+        if action:
+            # 파란색 화살표로 그리기
+            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['blue_soft'])))
+            painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 4))  # scale 적용되므로 원래 두께
+            action(painter, 0, 0)
+        else:
+            self.draw_3d_straight_arrow(painter, 0, 0)
+        painter.restore()
+
+    def draw_3d_left_arrow(self, painter, x, y, shadow=False):
+        # scale이 2배로 적용되어 있으므로 원래 좌표 사용
+        painter.drawPolygon(QPolygonF([
+            QPointF(x-70, y),
+            QPointF(x-30, y-40),
+            QPointF(x-30, y-20),
+            QPointF(x+40, y-20),
+            QPointF(x+40, y+20),
+            QPointF(x-30, y+20),
+            QPointF(x-30, y+40)
+        ]))
+
+    def draw_3d_right_arrow(self, painter, x, y, shadow=False):
+        # scale이 2배로 적용되어 있으므로 원래 좌표 사용
+        painter.drawPolygon(QPolygonF([
+            QPointF(x+70, y),
+            QPointF(x+30, y-40),
+            QPointF(x+30, y-20),
+            QPointF(x-40, y-20),
+            QPointF(x-40, y+20),
+            QPointF(x+30, y+20),
+            QPointF(x+30, y+40)
+        ]))
+
+    def draw_3d_straight_arrow(self, painter, x, y):
+        # 검정 배경(그림자) 제거 - 파란색 화살표만 그리기
+        # scale이 2배로 적용되어 있으므로 원래 좌표 사용
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['blue_soft'])))
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 4))  # scale 적용되므로 원래 두께 사용
+        painter.drawPolygon(QPolygonF([
+            QPointF(x, y-70),
+            QPointF(x-36, y-20),
+            QPointF(x-20, y-20),
+            QPointF(x-20, y+50),
+            QPointF(x+20, y+50),
+            QPointF(x+20, y-20),
+            QPointF(x+36, y-20)
+        ]))
+
+    def draw_3d_destination_icon(self, painter, x, y, shadow=False):
+        # 목적지 도착: 주황색 원에 체크마크 표시 (SmartParking UI 참고)
+        if shadow:
+            painter.drawEllipse(QPointF(x, y), 50, 50)
+        else:
+            # 주황색 원 그리기
+            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['warning'])))  # 주황색
+            painter.setPen(QPen(QColor(HYUNDAI_COLORS['warning']), 4))
+            painter.drawEllipse(QPointF(x, y), 50, 50)
+            
+            # 체크마크 그리기 (흰색)
+            painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 6))
+            painter.setBrush(Qt.NoBrush)
+            # 체크마크 라인
+            painter.drawLine(QPointF(x-16, y), QPointF(x-4, y+12))
+            painter.drawLine(QPointF(x-4, y+12), QPointF(x+16, y-12))
+
+    def draw_3d_exit_complete_icon(self, painter, x, y, shadow=False):
+        # 출차 완료: 주황색 원에 체크마크 표시 (SmartParking UI 참고)
+        if shadow:
+            painter.drawEllipse(QPointF(x, y), 50, 50)
+        else:
+            # 주황색 원 그리기
+            painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['warning'])))  # 주황색
+            painter.setPen(QPen(QColor(HYUNDAI_COLORS['warning']), 4))
+            painter.drawEllipse(QPointF(x, y), 50, 50)
+            
+            # 체크마크 그리기 (흰색)
+            painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 6))
+            painter.setBrush(Qt.NoBrush)
+            # 체크마크 라인
+            painter.drawLine(QPointF(x-16, y), QPointF(x-4, y+12))
+            painter.drawLine(QPointF(x-4, y+12), QPointF(x+16, y-12))
+
+    def draw_distance_panel(self, painter, center_x, y):
+        painter.save()
+        # 배경 박스 제거 - 텍스트만 표시
+        
+        distance_text = f"{self.current_distance:.0f}m" if self.current_distance < 1000 else f"{self.current_distance/1000:.1f}km"
+        # 글자 크기 키우기 (1.2배)
+        font_size = int(FONT_SIZES['hud_distance'] * 1.2)
+        font = QFont("Segoe UI", font_size, QFont.Bold)
+        painter.setFont(font)
+        
+        if self.current_distance <= 5:
+            text_color = QColor(HYUNDAI_COLORS['warning'])
+        elif self.current_distance <= 20:
+            text_color = QColor(HYUNDAI_COLORS['success'])
+        elif "출차 완료" in self.current_direction or "목적지 도착" in self.current_direction:
+            text_color = QColor(HYUNDAI_COLORS['warning'])
+        else:
+            text_color = QColor(HYUNDAI_COLORS['blue_soft'])
+            
+        # 숫자는 조금 위로 이동
+        painter.setPen(QPen(text_color))
+        painter.drawText(QRectF(center_x-300, y-80, 600, 120), Qt.AlignCenter, distance_text)  # y-60 -> y-80 (위로 20px)
+        
+        # 방향 텍스트 크기 키우기 (1.2배)
+        direction_font_size = int(FONT_SIZES['hud_direction'] * 1.2)
+        font = QFont("Malgun Gothic", direction_font_size, QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['text_secondary'])))
+        direction_text = self.current_direction[:20] + "..." if len(self.current_direction)>20 else self.current_direction
+        
+        # "출차 완료", "목적지 도착" 같은 단어는 조금 아래로 이동하고 간격 확보
+        if "출차 완료" in self.current_direction or "목적지 도착" in self.current_direction:
+            # 단어는 아래로 이동 (y+20 -> y+60, 간격 40px 추가)
+            painter.drawText(QRectF(center_x-300, y+60, 600, 100), Qt.AlignCenter, direction_text)
+        else:
+            # 일반 텍스트도 간격 확보
+            painter.drawText(QRectF(center_x-300, y+40, 600, 100), Qt.AlignCenter, direction_text)
+        painter.restore()
+
+    def draw_speed_gauge(self, painter, center_x, y):
+        painter.save()
+        gauge_rect = QRectF(center_x - 160, y - 80, 320, 160)
+        
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['gray_medium']), 12))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawArc(gauge_rect, 0, 180 * 16)
+        
+        speed_angle = min(180, (self.speed / 100) * 180)
+        if "출차 완료" in self.current_direction or "목적지 도착" in self.current_direction:
+            painter.setPen(QPen(QColor(HYUNDAI_COLORS['warning']), 12))
+        else:
+            painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 12))
+        painter.drawArc(gauge_rect, 0, int(speed_angle * 16))
+        
+        font = QFont("Segoe UI", FONT_SIZES['hud_speed'], QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['text_primary'])))
+        painter.drawText(QRectF(center_x-160, y-40, 320, 80), Qt.AlignCenter, f"{self.speed}")
+        
+        font = QFont("Malgun Gothic", FONT_SIZES['hud_speed_unit'])
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['text_secondary'])))
+        painter.drawText(QRectF(center_x-160, y+20, 320, 40), Qt.AlignCenter, "km/h")
+        painter.restore()
+
+    def draw_next_instruction_card(self, painter, center_x, y):
+        if not self.next_direction: return
+        painter.save()
+        card_rect = QRectF(center_x-400, y-80, 800, 160)
+        
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['surface'])))
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['gray_medium']), 2))
+        painter.drawRoundedRect(card_rect, 40, 40)
+        
+        font = QFont("Malgun Gothic", FONT_SIZES['hud_next_label'], QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft'])))
+        painter.drawText(QPointF(center_x-380, y-30), "다음")
+        
+        icon_x, icon_y = center_x - 280, y + 20
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['gray_medium'])))
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 2))
+        painter.drawEllipse(QPointF(icon_x, icon_y), 50, 50)
+        
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 4))
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['white_soft'])))
+        if "좌회전" in self.next_direction:
+            self.draw_mini_left_arrow(painter, icon_x, icon_y)
+        elif "우회전" in self.next_direction:
+            self.draw_mini_right_arrow(painter, icon_x, icon_y)
+        elif "목적지" in self.next_direction or "도착" in self.next_direction:
+            self.draw_mini_destination(painter, icon_x, icon_y)
+        elif "출차 완료" in self.next_direction:
+            self.draw_mini_exit_complete(painter, icon_x, icon_y)
+        else:
+            self.draw_mini_straight(painter, icon_x, icon_y)
+        
+        font.setPointSize(FONT_SIZES['hud_next_direction'])
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['text_secondary'])))
+        painter.drawText(QRectF(icon_x+60, y-40, 400, 120), Qt.AlignVCenter, 
+                        self.next_direction[:20]+"..." if len(self.next_direction)>20 else self.next_direction)
+        painter.restore()
+
+    def draw_mini_left_arrow(self, painter, x, y): 
+        painter.drawPolygon(QPolygonF([QPointF(x-24,y),QPointF(x-10,y-14),QPointF(x-10,y-6),QPointF(x+16,y-6),QPointF(x+16,y+6),QPointF(x-10,y+6),QPointF(x-10,y+14)]))
+    def draw_mini_right_arrow(self, painter, x, y): 
+        painter.drawPolygon(QPolygonF([QPointF(x+24,y),QPointF(x+10,y-14),QPointF(x+10,y-6),QPointF(x-16,y-6),QPointF(x-16,y+6),QPointF(x+10,y+6),QPointF(x+10,y+14)]))
+    def draw_mini_straight(self, painter, x, y): 
+        painter.drawPolygon(QPolygonF([QPointF(x,y-24),QPointF(x-12,y-8),QPointF(x-6,y-8),QPointF(x-6,y+16),QPointF(x+6,y+16),QPointF(x+6,y-8),QPointF(x+12,y-8)]))
+    def draw_mini_destination(self, painter, x, y):
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['warning'])))
+        painter.drawEllipse(QPointF(x,y), 16, 16)
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['white_soft'])))
+        painter.drawEllipse(QPointF(x,y), 6, 6)
+
+    def draw_mini_exit_complete(self, painter, x, y):
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['warning'])))
+        painter.drawEllipse(QPointF(x,y), 16, 16)
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['white_soft']), 4))
+        painter.drawLine(QPointF(x-6, y), QPointF(x-2, y+4))
+        painter.drawLine(QPointF(x-2, y+4), QPointF(x+6, y-4))
+
+    def draw_decorative_elements(self, painter, rect):
+        painter.save()
+        painter.setBrush(QBrush(QColor(HYUNDAI_COLORS['gray_medium'])))
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(0, 40, rect.width(), 4)
+        painter.drawRect(0, rect.height()-44, rect.width(), 4)
+        
+        corner_size = 40
+        painter.setPen(QPen(QColor(HYUNDAI_COLORS['blue_soft']), 4))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawArc(30, 30, corner_size, corner_size, 90*16, 90*16)
+        painter.drawArc(rect.width()-70, 30, corner_size, corner_size, 0*16, 90*16)
+        painter.drawArc(30, rect.height()-70, corner_size, corner_size, 180*16, 90*16)
+        painter.drawArc(rect.width()-70, rect.height()-70, corner_size, corner_size, 270*16, 90*16)
+        painter.restore()
+
+    def update_navigation_info(self, instructions, current_speed=0, route_progress=0):
+        self.speed, self.progress = current_speed, route_progress
+        if not instructions:
+            self.current_direction, self.current_distance, self.next_direction = "경로를 생성하세요", 0.0, ""
+            self.update()
+            return
+
+        direction, distance = instructions[0]
+        
+        # 회전 완료 판단: 2m 이내로 남았을 때 회전을 완료했다고 인지
+        is_turn_complete = ("좌회전" in direction or "우회전" in direction) and distance <= 2
+
+        # 목적지 도착 판단: 오직 instructions[0]이 "목적지 도착" 또는 "출차 완료"일 때만
+        # 서버로부터 전송받은 마지막 좌표 근처로 갔을 때 generate_hud_instructions가
+        # instructions[0]에 "목적지 도착"을 생성하므로, 이것만 확인하면 됨
+        is_destination_arrival = (
+            ("목적지" in direction or "도착" in direction or "출차 완료" in direction) and 
+            distance <= 5
+        )
+
+        if is_destination_arrival:
+            # 목적지 도착: instructions[0]이 목적지 도착이고 거리가 5m 이하
+            # 거리는 1m 이하면 0으로 이미 고정되어 있음
+            self.current_direction = direction
+            self.current_distance = distance if distance > 1.0 else 0.0
+            self.next_direction = ""
+        elif is_turn_complete and len(instructions) > 1:
+            # 회전 완료: 다음 안내로 넘어감
+            next_dir, next_dist = instructions[1]
+            
+            # Smart_Parking_GUI.py 로직 참고: 다음이 목적지/출차 완료이고 거리가 8m보다 크면 직진 표시
+            # 목적지 도착/출차 완료는 instructions[0]일 때만 표시하므로,
+            # 회전 완료 후에는 다음 안내가 목적지/출차 완료여도 거리가 8m보다 크면 직진으로 표시
+            if (("목적지" in next_dir or "도착" in next_dir or "출차 완료" in next_dir) and next_dist > 8):
+                # 목적지/출차 완료까지 거리가 8m보다 크면 직진 표시
+                self.current_direction = "직진"
+                self.current_distance = next_dist
+                self.next_direction = next_dir
+            elif (("목적지" in next_dir or "도착" in next_dir or "출차 완료" in next_dir) and next_dist <= 8):
+                # 목적지/출차 완료까지 거리가 8m 이하이지만, 도착/완료는 instructions[0]일 때만 표시
+                # 따라서 여기서는 직진으로 표시하고 다음 안내는 목적지/출차 완료
+                self.current_direction = "직진"
+                self.current_distance = next_dist
+                self.next_direction = next_dir
+            else:
+                # 다음 안내가 직진 등 일반 안내인 경우
+                self.current_direction = next_dir
+                self.current_distance = next_dist
+                if len(instructions) > 2:
+                    self.next_direction = instructions[2][0]
+                else:
+                    self.next_direction = ""
+        else:
+            # 회전 전환 시점: 8m 이내로 남았을 때 회전 안내 시작
+            if ("좌회전" in direction or "우회전" in direction):
+                if distance > 8:
+                    # 8m보다 멀리 있으면 직진 표시, 다음 안내는 회전
+                    self.current_direction = "직진"
+                    self.current_distance = distance
+                    self.next_direction = direction
+                else:
+                    # 8m 이내로 진입하면 회전 안내 표시
+                    # 우회전 중에는 목적지 도착으로 넘어가지 않음
+                    self.current_direction = direction
+                    self.current_distance = distance
+                    # 다음 안내 설정 (다음 안내가 목적지여도 회전 중에는 넘어가지 않음)
+                    if len(instructions) > 1:
+                        next_dir, next_dist = instructions[1]
+                        self.next_direction = next_dir
+                    else:
+                        self.next_direction = ""
+            else:
+                # 직진 등 (회전이 아닌 경우)
+                if distance > 5:
+                    self.current_direction = "직진"
+                    self.current_distance = distance
+                    self.next_direction = direction if direction != "직진" else ""
+                else:
+                    self.current_direction = direction
+                    self.current_distance = distance
+                    if len(instructions) > 1:
+                        next_dir, next_dist = instructions[1]
+                        self.next_direction = next_dir
+                    else:
+                        self.next_direction = ""
+
+        new_direction = self.current_direction
+        if new_direction != self.target_direction:
+            self.previous_direction, self.target_direction, self.direction_transition = self.target_direction, new_direction, 0.0
+            
+            self.play_voice_guidance(new_direction, self.current_distance)
+
+        self.update()
+    
+    def play_voice_guidance(self, direction, distance):
+        """음성 안내 메시지 생성 및 재생"""
+        if not direction or direction == "경로 설정 대기":
+            return
+        
+        voice_message = self.generate_voice_message(direction, distance)
+        
+        if voice_message:
+            self.voice_guide.speak_instruction(voice_message)
+    
+    def generate_voice_message(self, direction, distance):
+        """방향과 거리에 따른 음성 안내 메시지 생성 (한국어)"""
+        distance_int = int(round(distance))
+        
+        if "좌회전" in direction:
+            if distance_int <= 0:
+                return "지금 좌회전하세요"
+            else:
+                return f"{distance_int}미터 후 좌회전입니다"
+        elif "우회전" in direction:
+            if distance_int <= 0:
+                return "지금 우회전하세요"
+            else:
+                return f"{distance_int}미터 후 우회전입니다"
+        elif "직진" in direction:
+            if distance_int <= 0:
+                return "지금 직진하세요"
+            else:
+                return f"{distance_int}미터 직진입니다"
+        elif "목적지 도착" in direction:
+            return "목적지에 도착했습니다"
+        elif "출차 완료" in direction:
+            return "출차가 완료되었습니다"
+        elif "출차" in direction:
+            if "좌회전" in direction:
+                if distance_int <= 0:
+                    return "지금 출차 좌회전하세요"
+                else:
+                    return f"{distance_int}미터 후 출차 좌회전입니다"
+            elif "우회전" in direction:
+                if distance_int <= 0:
+                    return "지금 출차 우회전하세요"
+                else:
+                    return f"{distance_int}미터 후 출차 우회전입니다"
+            else:
+                if distance_int <= 0:
+                    return "지금 출차 직진하세요"
+                else:
+                    return f"{distance_int}미터 출차 직진입니다"
+        else:
+            if distance_int <= 0:
+                return f"지금 {direction}하세요"
+            else:
+                return f"{distance_int}미터 후 {direction}입니다"
+
+    def start_exit_scenario(self):
+        """출차 시나리오 시작 - Smart_Parking_GUI.py 로직 참고"""
+        # 부모 위젯(NavigationHUD)의 출차 시나리오 메서드 호출
+        if hasattr(self.parent(), 'start_exit_scenario'):
+            self.parent().start_exit_scenario()
+
+# ===================================================================
+# HUD 메인 UI 클래스
+# ===================================================================
+class NavigationHUD(QWidget):
+    """HUD 네비게이션 메인 UI"""
+    
+    def __init__(self):
+        super().__init__()
+        self.zmq_receiver = None
+        self.hud_widget = PremiumHudWidget(self)  # parent 설정하여 start_exit_scenario 접근 가능
+        self.last_position = None  # 마지막 차량 위치 저장
+        self.current_parking_spot = None  # 현재 주차 구역 번호
+        self.payment_waiting_dialog = None  # 정산 대기 팝업
+        self.pending_parking_spot = None  # 정산 대기 중인 주차 구역
+        
+        self.init_ui()
+        self.setup_zmq_receiver()
+        
+    def init_ui(self):
+        """UI 초기화"""
+        self.setWindowTitle("SmartParking Navigation System - HUD (카메라 배경)")
+        
+        # 최대화/최소화 버튼 활성화
+        self.setWindowFlags(Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint)
+        
+        # 카메라 배경 레이블 생성 (전체 화면)
+        self.camera_label = QLabel(self)
+        self.camera_label.setAlignment(Qt.AlignCenter)
+        self.camera_label.setText("ESP32 카메라 연결 중...")
+        self.camera_label.setStyleSheet("color: white; font-size: 18px; background-color: #1a1a1a;")
+        self.camera_label.setScaledContents(True)  # 전체 화면 채우기
+        self.camera_label.setGeometry(0, 0, self.width() if self.width() > 0 else 1920, self.height() if self.height() > 0 else 1080)
+        
+        # HUD 위젯을 오버레이로 배치 (투명 배경)
+        # 부모를 self로 설정하고 absolute position으로 배치
+        self.hud_widget.setParent(self)
+        # 창이 표시된 후 크기를 설정하도록 타이머 사용
+        QTimer.singleShot(100, self.update_hud_geometry)
+        
+        self.setStyleSheet(f"""
+            QWidget {{
+                background: {HYUNDAI_COLORS['background']};
+                color: {HYUNDAI_COLORS['text_primary']};
+            }}
+        """)
+        
+        # HUD 위젯이 앞에 표시되도록 raise
+        self.hud_widget.raise_()
+        
+        # 카메라 스트림 스레드 시작
+        self.video_thread = VideoThread(ESP32_CAM_URL)
+        self.video_thread.change_pixmap_signal.connect(self.update_camera_image)
+        self.video_thread.connection_status_signal.connect(self.update_camera_status)
+        self.video_thread.start()
+    
+    def showEvent(self, event):
+        """창이 표시될 때 HUD 위젯 크기 업데이트"""
+        super().showEvent(event)
+        QTimer.singleShot(50, self.update_hud_geometry)
+    
+    def update_hud_geometry(self):
+        """HUD 위젯의 크기와 위치 업데이트"""
+        if hasattr(self, 'hud_widget'):
+            width = self.width() if self.width() > 0 else 1920
+            height = self.height() if self.height() > 0 else 1080
+            self.hud_widget.setGeometry(0, 0, width, height)
+            self.hud_widget.raise_()  # 항상 앞에 표시
+            self.hud_widget.show()  # 명시적으로 표시
+            self.hud_widget.update()  # 다시 그리기
+    
+    def resizeEvent(self, event):
+        """창 크기 변경 시 카메라 레이블과 HUD 위젯도 함께 리사이즈"""
+        super().resizeEvent(event)
+        width = self.width()
+        height = self.height()
+        
+        # 카메라 레이블 크기 업데이트
+        if hasattr(self, 'camera_label'):
+            self.camera_label.setGeometry(0, 0, width, height)
+        
+        # HUD 위젯 크기 업데이트
+        if hasattr(self, 'hud_widget'):
+            self.hud_widget.setGeometry(0, 0, width, height)
+            self.hud_widget.raise_()  # 항상 앞에 표시
+            self.hud_widget.update()  # 다시 그리기
+    
+    def update_camera_image(self, qt_image):
+        """카메라 이미지 업데이트"""
+        try:
+            if hasattr(self, 'camera_label') and self.camera_label.isVisible():
+                # 전체 화면을 채우도록 스케일링
+                label_size = self.camera_label.size()
+                if label_size.width() > 0 and label_size.height() > 0:
+                    scaled_pixmap = QPixmap.fromImage(qt_image).scaled(
+                        label_size, 
+                        Qt.KeepAspectRatioByExpanding, 
+                        Qt.SmoothTransformation
+                    )
+                    self.camera_label.setPixmap(scaled_pixmap)
+        except Exception as e:
+            print(f"⚠️ 카메라 이미지 업데이트 오류: {e}")
+    
+    def update_camera_status(self, status):
+        """카메라 연결 상태 업데이트"""
+        if status != "연결됨":
+            self.camera_label.setText(f"카메라 상태: {status}")
+        print(f"📹 카메라 상태: {status}")
+        
+    def setup_zmq_receiver(self):
+        """ZeroMQ 수신기 설정"""
+        self.zmq_receiver = HUDDataReceiver()
+        
+        self.zmq_receiver.position_received.connect(self.on_position_received)
+        self.zmq_receiver.navigation_received.connect(self.on_navigation_received)
+        self.zmq_receiver.waypoint_received.connect(self.on_waypoint_received)
+        self.zmq_receiver.payment_received.connect(self.on_payment_received)  # 정산 데이터 수신 연결
+        
+        if self.zmq_receiver.start():
+            print("✅ HUD ZeroMQ 연결 성공")
+        else:
+            print("❌ HUD ZeroMQ 연결 실패")
+    
+    def on_position_received(self, message_data):
+        """차량 위치 데이터 수신 처리"""
+        try:
+            position_data = message_data.get('data', {})
+            speed = position_data.get('speed', 0)
+            
+            # 차량 위치 저장 (출차 시나리오에서 사용)
+            if 'x' in position_data and 'y' in position_data:
+                self.last_position = (position_data['x'], position_data['y'])
+                # 주차 구역 감지
+                self.current_parking_spot = self.detect_parking_spot(self.last_position)
+            
+            # 속도는 네비게이션 안내에서 함께 업데이트됨
+        except Exception as e:
+            print(f"❌ HUD 위치 데이터 처리 오류: {e}")
+    
+    def on_navigation_received(self, message_data):
+        """네비게이션 안내 데이터 수신 처리"""
+        try:
+            nav_data = message_data.get('data', {})
+            instruction = nav_data.get('instruction', '안내 없음')
+            distance = nav_data.get('distance', 0)
+            action = nav_data.get('action', '계속')
+            speed = nav_data.get('speed', 0)
+            progress = nav_data.get('progress', 0)
+            
+            # HUD 업데이트 (instructions 형식으로 변환)
+            instructions = []
+            if instruction and distance >= 0:
+                instructions.append((instruction, distance))
+            
+            # 다음 안내가 있으면 추가
+            if nav_data.get('next_instruction'):
+                instructions.append((nav_data.get('next_instruction'), nav_data.get('next_distance', 0)))
+            
+            self.hud_widget.update_navigation_info(instructions, current_speed=speed, route_progress=progress)
+            
+        except Exception as e:
+            print(f"❌ HUD 네비게이션 데이터 처리 오류: {e}")
+    
+    def on_waypoint_received(self, message_data):
+        """웨이포인트 데이터 수신 처리"""
+        try:
+            waypoint_data = message_data.get('data', {})
+            waypoints = waypoint_data.get('waypoints', [])
+            
+            # 재할당된 경로인지 확인 (parking_topview.py와 동일한 로직)
+            is_reassignment = (
+                message_data.get('type') == 'waypoint_reassignment' or 
+                waypoint_data.get('type') == 'waypoint_reassignment' or
+                waypoint_data.get('assignment_mode') == 'test_reassignment'
+            )
+            
+            # 경로 전송 받으면 음성 안내
+            if waypoints:
+                if is_reassignment:
+                    # 재할당된 경로일 때는 다른 메시지
+                    self.hud_widget.voice_guide.speak_instruction("경로를 이탈하여 재탐색 합니다")
+                    print(f"🧭 HUD 웨이포인트 업데이트: {len(waypoints)}개 포인트 (재할당)")
+                    print(f"📢 경로를 이탈하여 재탐색 합니다")
+                else:
+                    # 일반 경로일 때는 기존 메시지
+                    self.hud_widget.voice_guide.speak_instruction("경로 안내를 시작합니다")
+                    print(f"🧭 HUD 웨이포인트 업데이트: {len(waypoints)}개 포인트")
+                    print(f"📢 경로 안내를 시작합니다")
+        except Exception as e:
+            print(f"❌ HUD 웨이포인트 데이터 처리 오류: {e}")
+    
+    def on_payment_received(self, message_data):
+        """정산 금액 데이터 수신 처리"""
+        try:
+            payment_data = message_data.get('data', {})
+            amount = payment_data.get('amount', 0)
+            
+            # 정산 확인 팝업 표시
+            self.show_payment_confirmation(amount)
+            
+        except Exception as e:
+            print(f"❌ HUD 정산 데이터 처리 오류: {e}")
+    
+    def detect_parking_spot(self, car_pos):
+        """차량 위치를 기반으로 주차 구역 번호 감지 - Smart_Parking_GUI.py 로직 참고"""
+        x, y = car_pos[0], car_pos[1]
+        
+        # 주차 구역별 좌표 범위 정의 (Smart_Parking_GUI.py와 동일)
+        parking_spots = {
+            # 1~5번 주차구역 (상단 주차구역)
+            1: (0, 1600, 400, 400),      # 장애인 구역
+            2: (400, 1600, 300, 400),    # 일반 구역
+            3: (700, 1600, 300, 400),    # 일반 구역
+            4: (1000, 1600, 300, 400),   # 전기차 구역
+            5: (1300, 1600, 300, 400),   # 전기차 구역
+            
+            # 6~7번 주차구역 (우측 주차구역)
+            6: (1600, 1200, 400, 400),   # 장애인 구역
+            7: (1600, 800, 400, 400),    # 장애인 구역
+            
+            # 8~11번 주차구역 (하단 주차구역)
+            8: (1300, 400, 300, 400),    # 일반 구역
+            9: (1000, 400, 300, 400),    # 일반 구역
+            10: (700, 400, 300, 400),    # 전기차 구역
+            11: (400, 400, 300, 400),     # 전기차 구역
+        }
+        
+        for spot_num, (spot_x, spot_y, spot_w, spot_h) in parking_spots.items():
+            if spot_x <= x <= spot_x + spot_w and spot_y <= y <= spot_y + spot_h:
+                return spot_num
+        
+        return None
+    
+    def generate_exit_waypoints(self, parking_spot):
+        """출차 웨이포인트 생성 - Smart_Parking_GUI.py 로직 참고
+        주차 좌표 포인트부터 시작하는 전체 출차 경로를 반환"""
+        MANDATORY_WAYPOINT = [200, 925]
+        FINAL_DESTINATION = [200, 200]  # 최종 목적지 (입구)
+        
+        # 주차구역별 시작 좌표 (Smart_Parking_GUI.py의 get_parking_spot_start_waypoint와 동일)
+        parking_waypoints = {
+            # 주차구역 1-5 (상단, 왼쪽→오른쪽)
+            1: [200, 1475], 2: [550, 1475], 3: [850, 1475], 4: [1150, 1475],
+            5: [1450, 1475],
+            # 주차구역 6-7 (우측, 위→아래)  
+            6: [1475, 1400], 7: [1475, 1000],
+            # 주차구역 8-11 (하단, 오른쪽→왼쪽)
+            8: [1475, 925], 9: [1150, 925], 10: [850, 925], 11: [550, 925]
+        }
+        
+        current_waypoint = parking_waypoints.get(parking_spot)
+        if not current_waypoint:
+            return None
+        
+        exit_waypoints = []
+        
+        # Smart_Parking_GUI.py의 calculate_and_display_exit_route처럼 주차 좌표 포인트부터 시작
+        # 전체 경로: [주차 좌표 포인트] + [중간 웨이포인트들] + [최종 목적지]
+        
+        if parking_spot == 1:  # 1번: (200,1475) -> (200,925) -> (200,200)
+            exit_waypoints.append(current_waypoint)  # [200, 1475]부터 시작
+            exit_waypoints.append(MANDATORY_WAYPOINT)
+            exit_waypoints.append(FINAL_DESTINATION)
+        elif parking_spot in [2, 3, 4, 5]:  # 2~5번: 주차 좌표 -> (200, 1475) -> (200, 925) -> (200,200)
+            exit_waypoints.append(current_waypoint)  # 주차 좌표부터 시작
+            exit_waypoints.append([200, 1475])
+            exit_waypoints.append(MANDATORY_WAYPOINT)
+            exit_waypoints.append(FINAL_DESTINATION)
+        elif parking_spot == 6:  # 6번: (1475, 1400) -> (1475, 1475) -> (200, 1475) -> (200, 925) -> (200,200)
+            exit_waypoints.append(current_waypoint)  # [1475, 1400]부터 시작
+            exit_waypoints.append([1475, 1475])
+            exit_waypoints.append([200, 1475])
+            exit_waypoints.append(MANDATORY_WAYPOINT)
+            exit_waypoints.append(FINAL_DESTINATION)
+        elif parking_spot == 7:  # 7번: (1475, 1000) -> (1475, 925) -> (200, 925) -> (200,200)
+            exit_waypoints.append(current_waypoint)  # [1475, 1000]부터 시작
+            exit_waypoints.append([1475, 925])
+            exit_waypoints.append(MANDATORY_WAYPOINT)
+            exit_waypoints.append(FINAL_DESTINATION)
+        elif parking_spot in [8, 9, 10, 11]:  # 8~11번: 주차 좌표 -> (200, 925) -> (200,200)
+            exit_waypoints.append(current_waypoint)  # 주차 좌표부터 시작
+            exit_waypoints.append(MANDATORY_WAYPOINT)
+            exit_waypoints.append(FINAL_DESTINATION)
+        
+        return exit_waypoints
+    
+    def start_exit_scenario(self):
+        """출차 시나리오 시작 - 정산 처리 후 출차 로직 시작"""
+        from PyQt5.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QDialogButtonBox
+        import socket
+        
+        if self.last_position is None:
+            QMessageBox.warning(self, "출차 오류", "차량 위치 정보가 없습니다. 먼저 경로를 설정해주세요.")
+            return
+        
+        parking_spot = self.current_parking_spot
+        if parking_spot is None:
+            QMessageBox.warning(self, "출차 오류", "현재 위치에서 주차 구역을 찾을 수 없습니다.")
+            return
+        
+        # 주차 구역 저장 (정산 응답 대기 중)
+        self.pending_parking_spot = parking_spot
+        
+        # 1단계: 서버에 "pay" 명령 전송
+        try:
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.settimeout(5.0)
+            client_socket.connect(('localhost', 9999))
+            
+            # "pay" 명령을 JSON 형식으로 전송
+            pay_command = {
+                'type': 'pay',
+                'parking_spot': parking_spot
+            }
+            
+            json_str = json.dumps(pay_command, ensure_ascii=False)
+            client_socket.sendall(json_str.encode('utf-8'))
+            time.sleep(0.01)
+            client_socket.close()
+            
+            print(f"💰 정산 요청 전송: 주차구역 {parking_spot}번")
+            
+            # 2단계: "정산 처리 중입니다." 팝업 표시
+            self.show_payment_waiting_dialog()
+            
+        except socket.timeout:
+            QMessageBox.warning(self, "출차 오류", "서버 연결 시간 초과. main_controller.py가 실행 중인지 확인해주세요.")
+            print(f"❌ 정산 요청 실패: 연결 시간 초과")
+        except ConnectionRefusedError:
+            QMessageBox.warning(self, "출차 오류", "서버에 연결할 수 없습니다. main_controller.py가 실행 중인지 확인해주세요.")
+            print(f"❌ 정산 요청 실패: 연결 거부됨")
+        except Exception as e:
+            QMessageBox.warning(self, "출차 오류", f"정산 요청 전송 실패: {e}")
+            print(f"❌ 정산 요청 실패: {e}")
+    
+    def show_payment_waiting_dialog(self):
+        """정산 처리 대기 중 팝업 표시"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel
+        
+        if self.payment_waiting_dialog:
+            return
+        
+        self.payment_waiting_dialog = QDialog(self)
+        self.payment_waiting_dialog.setWindowTitle("정산 처리 중")
+        self.payment_waiting_dialog.setModal(True)
+        self.payment_waiting_dialog.setFixedSize(400, 150)
+        
+        layout = QVBoxLayout(self.payment_waiting_dialog)
+        label = QLabel("정산 처리 중입니다.")
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet("font-size: 18px; font-weight: bold; color: #4a9eff;")
+        layout.addWidget(label)
+        
+        self.payment_waiting_dialog.show()
+    
+    def close_payment_waiting_dialog(self):
+        """정산 처리 대기 팝업 닫기"""
+        if self.payment_waiting_dialog:
+            self.payment_waiting_dialog.close()
+            self.payment_waiting_dialog = None
+    
+    def show_payment_confirmation(self, amount):
+        """정산 금액 확인 팝업 표시"""
+        from PyQt5.QtWidgets import QMessageBox
+        
+        # 정산 처리 대기 팝업 닫기
+        self.close_payment_waiting_dialog()
+        
+        # 정산 확인 팝업 표시
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("주차 정산")
+        msg_box.setText(f"주차 정산 금액: {amount:,}원\n\n정산하시겠습니까?")
+        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg_box.button(QMessageBox.Yes).setText("YES")
+        msg_box.button(QMessageBox.No).setText("NO")
+        msg_box.setStyleSheet("""
+            QMessageBox {
+                background-color: #1a1a1a;
+                color: white;
+            }
+            QLabel {
+                color: white;
+                font-size: 16px;
+            }
+            QPushButton {
+                background-color: #4a9eff;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #6bb6ff;
+            }
+        """)
+        
+        result = msg_box.exec_()
+        
+        # 선택 결과를 서버에 전송
+        payment_confirmed = (result == QMessageBox.Yes)
+        self.send_payment_confirmation(payment_confirmed, amount)
+    
+    def send_payment_confirmation(self, confirmed, amount):
+        """정산 확인 결과를 서버에 전송 후 출차 로직 시작"""
+        import socket
+        from PyQt5.QtWidgets import QMessageBox
+        
+        try:
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.settimeout(5.0)
+            client_socket.connect(('localhost', 9999))
+            
+            # 정산 확인 결과를 JSON 형식으로 전송
+            payment_result = {
+                'type': 'payment_confirmation',
+                'confirmed': confirmed,
+                'amount': amount,
+                'parking_spot': self.pending_parking_spot
+            }
+            
+            json_str = json.dumps(payment_result, ensure_ascii=False)
+            print(f"📤 정산 확인 데이터 준비: {json_str}")
+            
+            client_socket.sendall(json_str.encode('utf-8'))
+            print(f"✅ 정산 확인 데이터 전송 완료 ({len(json_str)} bytes)")
+            
+            # 응답 대기 (선택적)
+            try:
+                client_socket.settimeout(1.0)
+                response = client_socket.recv(1024).decode('utf-8')
+                print(f"📥 서버 응답: {response}")
+            except socket.timeout:
+                print(f"⚠️ 서버 응답 없음 (타임아웃)")
+            except:
+                pass
+            
+            time.sleep(0.01)
+            client_socket.close()
+            
+            print(f"💰 정산 확인 전송: {'확인' if confirmed else '취소'}, 금액: {amount:,}원")
+            
+            # 정산이 확인되었을 때만 출차 로직 시작
+            if confirmed and self.pending_parking_spot:
+                self.start_exit_route()
+            elif not confirmed:
+                QMessageBox.information(self, "정산 취소", "정산이 취소되었습니다.")
+                self.pending_parking_spot = None
+            
+        except Exception as e:
+            QMessageBox.warning(self, "정산 오류", f"정산 확인 전송 실패: {e}")
+            print(f"❌ 정산 확인 전송 실패: {e}")
+            self.pending_parking_spot = None
+    
+    def start_exit_route(self):
+        """출차 경로 생성 및 전송 (기존 로직)"""
+        from PyQt5.QtWidgets import QMessageBox
+        import socket
+        
+        parking_spot = self.pending_parking_spot
+        if not parking_spot:
+            return
+        
+        exit_waypoints = self.generate_exit_waypoints(parking_spot)
+        if not exit_waypoints:
+            QMessageBox.warning(self, "출차 오류", "출차 경로를 생성할 수 없습니다.")
+            self.pending_parking_spot = None
+            return
+        
+        # TCP/IP 소켓으로 main_controller.py에 출차 웨이포인트 전송
+        try:
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.settimeout(5.0)
+            client_socket.connect(('localhost', 9999))
+            
+            waypoint_data = {
+                'type': 'waypoint',
+                'waypoints': exit_waypoints,
+                'parking_spot': parking_spot,
+                'route_type': 'exit'
+            }
+            
+            json_str = json.dumps(waypoint_data, ensure_ascii=False)
+            client_socket.sendall(json_str.encode('utf-8'))
+            time.sleep(0.01)
+            client_socket.close()
+            
+            QMessageBox.information(self, "출차 시나리오", 
+                f"주차 구역 {parking_spot}번에서 출차 경로를 시작합니다.\n입차 경로의 역순으로 안전하게 출차하세요.")
+            print(f"🚗 출차 경로 전송 완료: 주차구역 {parking_spot}번, {len(exit_waypoints)}개 웨이포인트")
+            print(f"   출차 경로: {exit_waypoints}")
+            
+            self.pending_parking_spot = None
+            
+        except socket.timeout:
+            QMessageBox.warning(self, "출차 오류", "서버 연결 시간 초과. main_controller.py가 실행 중인지 확인해주세요.")
+            print(f"❌ 출차 경로 전송 실패: 연결 시간 초과")
+            self.pending_parking_spot = None
+        except ConnectionRefusedError:
+            QMessageBox.warning(self, "출차 오류", "서버에 연결할 수 없습니다. main_controller.py가 실행 중인지 확인해주세요.")
+            print(f"❌ 출차 경로 전송 실패: 연결 거부됨")
+            self.pending_parking_spot = None
+        except Exception as e:
+            QMessageBox.warning(self, "출차 오류", f"출차 경로 전송 실패: {e}")
+            print(f"❌ 출차 경로 전송 실패: {e}")
+            self.pending_parking_spot = None
+    
+    def closeEvent(self, event):
+        """창 닫기 이벤트"""
+        if hasattr(self, 'video_thread'):
+            self.video_thread.stop()
+        if self.zmq_receiver:
+            self.zmq_receiver.stop()
+        if self.hud_widget and hasattr(self.hud_widget, 'voice_guide'):
+            self.hud_widget.voice_guide.stop()
+        event.accept()
+
+# ===================================================================
+# 메인 실행부
+# ===================================================================
+if __name__ == "__main__":
+    print("=" * 60)
+    print("🧭 Smart Parking System - HUD 네비게이션")
+    print("=" * 60)
+    
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+    
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+    
+    font = QFont("Malgun Gothic", 10)
+    app.setFont(font)
+    
+    app.setStyleSheet(f"""
+        QApplication {{ background-color: '#303030'; }}
+    """)
+    
+    hud_window = NavigationHUD()
+    
+    screens = app.screens()
+    if len(screens) > 1:
+        screen_geometry = screens[1].geometry()
+        hud_window.setGeometry(screen_geometry)
+        print(f"🖥️ 두 번째 디스플레이에 배치: {screen_geometry.width()}x{screen_geometry.height()}")
+    elif len(screens) == 1:
+        screen_geometry = screens[0].geometry()
+        hud_window.setGeometry(screen_geometry)
+        print(f"⚠️ 디스플레이가 하나만 감지됨. 첫 번째 디스플레이에 배치: {screen_geometry.width()}x{screen_geometry.height()}")
+    
+    hud_window.showMaximized()
+    
+    print("✅ HUD 네비게이션 화면 시작됨")
+    print("📡 메인 컨트롤러로부터 데이터 수신 대기 중...")
+    
+    sys.exit(app.exec_())
